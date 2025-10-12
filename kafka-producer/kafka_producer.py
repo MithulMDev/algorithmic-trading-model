@@ -60,7 +60,7 @@ class Config:
     PREFETCH_ALL_DATA = os.getenv("PREFETCH_ALL_DATA", "true").lower() == "true"
     
     # Logging Configuration
-    LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
+    LOG_DIR = os.getenv("LOG_DIR", "/app/logs/kafka")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 

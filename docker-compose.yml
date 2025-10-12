@@ -113,6 +113,41 @@ services:
     networks:
       - kafka-network
 
+  # Spark Consumer Application
+  spark-consumer:
+    build:
+      context: ./spark-consumer
+      dockerfile: Dockerfile
+    container_name: ohlcv-spark-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      producer:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "ohlcv-stream"
+      KAFKA_STARTING_OFFSETS: "earliest"
+      KAFKA_MAX_OFFSETS_PER_TRIGGER: "1000"
+      SPARK_APP_NAME: "OHLCV-Spark-Consumer"
+      TRIGGER_INTERVAL: "500 milliseconds"
+      CHECKPOINT_LOCATION: "/app/checkpoints"
+      LOG_DIR: "/app/logs"
+      DATA_LOG_DIR: "/app/logs/data"
+      LOG_LEVEL: "INFO"
+    networks:
+      - kafka-network
+    volumes:
+      - ./logs/spark:/app/logs
+      - ./spark-consumer/spark_consumer.py:/app/spark_consumer.py
+      - spark-checkpoints:/app/checkpoints
+    command: >
+      spark-submit
+      --master local[*]
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+      /app/spark_consumer.py
+    restart: on-failure
+
 networks:
   kafka-network:
     driver: bridge
@@ -120,3 +155,5 @@ networks:
 volumes:
   kafka-data:
     driver: local
+  spark-checkpoints:
+    driver: local     
