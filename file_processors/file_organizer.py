@@ -99,6 +99,6 @@ def organize_text_files(source_folder, output_folder):
 if __name__ == "__main__":
     
     source_folder = "C:\\Users\\dev\\Downloads\\nifty-banknifty-intraday-data-train"  # source folder
-    output_folder = "E:\\trading_algo_model\\organized_files_data"       # output folder
+    output_folder = "E:\\trading_algo_model\\organized_files_data\\trainable_files"       # output folder
     
     organize_text_files(source_folder, output_folder)

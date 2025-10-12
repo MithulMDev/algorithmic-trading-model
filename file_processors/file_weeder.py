@@ -153,7 +153,7 @@ def format_file_size(size_bytes):
 
 
 if __name__ == "__main__":
-    folder_path = "E:\\trading_algo_model\\organized_files_data"  # Change this to your folder path
+    folder_path = "E:\\trading_algo_model\\organized_files_data\\trainable_files"  # Change this to your folder path
     
     # First, do a dry run to see what would be deleted
     print("=" * 60)
