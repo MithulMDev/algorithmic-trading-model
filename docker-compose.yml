@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # Zookeeper - Required for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  # Python Producer Application
+  producer:
+    build:
+      context: ./kafka-producer
+      dockerfile: Dockerfile
+    container_name: ohlcv-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      # MongoDB Configuration (accessing host machine)
+      MONGO_URI: "mongodb://host.docker.internal:27017/"
+      MONGO_DATABASE: "ohlcv_data"
+      MONGO_COLLECTION: "combined_rows"
+      MONGO_TIMEOUT_MS: "10000"
+      MONGO_MAX_RETRIES: "10"
+      MONGO_RETRY_DELAY_SEC: "5"
+      
+      # Kafka Configuration
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "ohlcv-stream"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_REPLICATION_FACTOR: "1"
+      KAFKA_MAX_RETRIES: "10"
+      KAFKA_RETRY_DELAY_SEC: "5"
+      
+      # Processing Configuration
+      DELAY_BETWEEN_RECORDS: "1.0"
+      PREFETCH_ALL_DATA: "true"
+      
+      # Logging Configuration
+      LOG_DIR: "/app/logs"
+      LOG_LEVEL: "INFO"
+    networks:
+      - kafka-network
+    volumes:
+      - ./logs:/app/logs
+      - ./kafka-producer/kafka_producer.py:/app/kafka_producer.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+
+  # Optional: Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - kafka-network
+
+networks:
+  kafka-network:
+    driver: bridge
+
+volumes:
+  kafka-data:
+    driver: local

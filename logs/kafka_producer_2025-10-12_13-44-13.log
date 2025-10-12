@@ -1,0 +1,53 @@
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Logging initialized. Log file: /app/logs/kafka_producer_2025-10-12_13-44-13.log
+2025-10-12 13:44:13 | INFO     | KafkaProducer | ================================================================================
+2025-10-12 13:44:13 | INFO     | KafkaProducer | OHLCV Data Streaming: MongoDB (Host) → Kafka (Docker)
+2025-10-12 13:44:13 | INFO     | KafkaProducer | ================================================================================
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Prefetch all data: True
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Delay between records: 1.0s
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Connecting to MongoDB on host machine...
+2025-10-12 13:44:13 | INFO     | KafkaProducer | URI: mongodb://host.docker.internal:27017/
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Database: ohlcv_data
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Collection: combined_rows
+2025-10-12 13:44:13 | INFO     | KafkaProducer | Attempt 1/10...
+2025-10-12 13:44:14 | INFO     | KafkaProducer | ✓ Connected to MongoDB successfully
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Total documents in collection: 52,000
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Waiting for Kafka to be ready...
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Attempt 1/10: Connecting to Kafka...
+2025-10-12 13:44:14 | INFO     | KafkaProducer | ✓ Kafka is ready! Found 1 topics
+2025-10-12 13:44:14 | INFO     | KafkaProducer | ✓ Topic 'ohlcv-stream' already exists
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Initializing Kafka producer...
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Bootstrap servers: kafka:29092
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Target topic: ohlcv-stream
+2025-10-12 13:44:14 | INFO     | KafkaProducer | ✓ Kafka producer initialized successfully
+2025-10-12 13:44:14 | INFO     | KafkaProducer | --------------------------------------------------------------------------------
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Starting data streaming...
+2025-10-12 13:44:14 | INFO     | KafkaProducer | --------------------------------------------------------------------------------
+2025-10-12 13:44:14 | INFO     | KafkaProducer | Fetching all documents from MongoDB...
+2025-10-12 13:44:17 | INFO     | KafkaProducer | ✓ Loaded 52,000 documents into memory
+2025-10-12 13:44:17 | INFO     | KafkaProducer | MongoDB connection closed
+2025-10-12 13:44:26 | INFO     | KafkaProducer | Progress: 10 documents | Rate: 0.80 docs/sec | Delivered: 9 | Failed: 0
+2025-10-12 13:44:36 | INFO     | KafkaProducer | Progress: 20 documents | Rate: 0.89 docs/sec | Delivered: 19 | Failed: 0
+2025-10-12 13:44:46 | INFO     | KafkaProducer | Progress: 30 documents | Rate: 0.92 docs/sec | Delivered: 29 | Failed: 0
+2025-10-12 13:44:56 | INFO     | KafkaProducer | Progress: 40 documents | Rate: 0.94 docs/sec | Delivered: 39 | Failed: 0
+2025-10-12 13:45:06 | INFO     | KafkaProducer | Progress: 50 documents | Rate: 0.95 docs/sec | Delivered: 49 | Failed: 0
+2025-10-12 13:45:16 | INFO     | KafkaProducer | Progress: 60 documents | Rate: 0.96 docs/sec | Delivered: 59 | Failed: 0
+2025-10-12 13:45:26 | INFO     | KafkaProducer | Progress: 70 documents | Rate: 0.96 docs/sec | Delivered: 69 | Failed: 0
+2025-10-12 13:45:36 | INFO     | KafkaProducer | Progress: 80 documents | Rate: 0.97 docs/sec | Delivered: 79 | Failed: 0
+2025-10-12 13:45:46 | INFO     | KafkaProducer | Progress: 90 documents | Rate: 0.97 docs/sec | Delivered: 89 | Failed: 0
+2025-10-12 13:45:56 | INFO     | KafkaProducer | Progress: 100 documents | Rate: 0.97 docs/sec | Delivered: 99 | Failed: 0
+2025-10-12 13:46:06 | INFO     | KafkaProducer | Progress: 110 documents | Rate: 0.98 docs/sec | Delivered: 109 | Failed: 0
+2025-10-12 13:46:16 | INFO     | KafkaProducer | Progress: 120 documents | Rate: 0.98 docs/sec | Delivered: 119 | Failed: 0
+2025-10-12 13:46:26 | INFO     | KafkaProducer | Progress: 130 documents | Rate: 0.98 docs/sec | Delivered: 129 | Failed: 0
+2025-10-12 13:46:36 | INFO     | KafkaProducer | Progress: 140 documents | Rate: 0.98 docs/sec | Delivered: 139 | Failed: 0
+2025-10-12 13:46:46 | INFO     | KafkaProducer | Progress: 150 documents | Rate: 0.98 docs/sec | Delivered: 149 | Failed: 0
+2025-10-12 13:46:56 | INFO     | KafkaProducer | Progress: 160 documents | Rate: 0.98 docs/sec | Delivered: 159 | Failed: 0
+2025-10-12 13:47:06 | INFO     | KafkaProducer | Progress: 170 documents | Rate: 0.98 docs/sec | Delivered: 169 | Failed: 0
+2025-10-12 13:47:16 | INFO     | KafkaProducer | Progress: 180 documents | Rate: 0.99 docs/sec | Delivered: 179 | Failed: 0
+2025-10-12 13:47:26 | INFO     | KafkaProducer | Progress: 190 documents | Rate: 0.99 docs/sec | Delivered: 189 | Failed: 0
+2025-10-12 13:47:36 | INFO     | KafkaProducer | Progress: 200 documents | Rate: 0.99 docs/sec | Delivered: 199 | Failed: 0
+2025-10-12 13:47:46 | INFO     | KafkaProducer | Progress: 210 documents | Rate: 0.99 docs/sec | Delivered: 209 | Failed: 0
+2025-10-12 13:47:56 | INFO     | KafkaProducer | Progress: 220 documents | Rate: 0.99 docs/sec | Delivered: 219 | Failed: 0
+2025-10-12 13:48:06 | INFO     | KafkaProducer | Progress: 230 documents | Rate: 0.99 docs/sec | Delivered: 229 | Failed: 0
+2025-10-12 13:48:16 | INFO     | KafkaProducer | Progress: 240 documents | Rate: 0.99 docs/sec | Delivered: 239 | Failed: 0
+2025-10-12 13:48:26 | INFO     | KafkaProducer | Progress: 250 documents | Rate: 0.99 docs/sec | Delivered: 249 | Failed: 0
+2025-10-12 13:48:36 | INFO     | KafkaProducer | Progress: 260 documents | Rate: 0.99 docs/sec | Delivered: 259 | Failed: 0

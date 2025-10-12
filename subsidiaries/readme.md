@@ -1,0 +1,1 @@
+Use these codes only if the mongodb is to be run inside a docker container (now it is run locally since the data is stored locally)

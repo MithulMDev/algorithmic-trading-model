@@ -1,0 +1,676 @@
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Logging initialized. Log file: /app/logs/kafka_producer_2025-10-12_14-14-02.log
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ================================================================================
+2025-10-12 14:14:02 | INFO     | KafkaProducer | OHLCV Data Streaming: MongoDB (Host) → Kafka (Docker)
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ================================================================================
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Prefetch all data: True
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Delay between records: 1.0s
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Connecting to MongoDB on host machine...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | URI: mongodb://host.docker.internal:27017/
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Database: ohlcv_data
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Collection: combined_rows
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Attempt 1/10...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ✓ Connected to MongoDB successfully
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Total documents in collection: 52,000
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Waiting for Kafka to be ready...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Attempt 1/10: Connecting to Kafka...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ✓ Kafka is ready! Found 0 topics
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Creating topic 'ohlcv-stream'...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ✓ Topic 'ohlcv-stream' created successfully
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Initializing Kafka producer...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Bootstrap servers: kafka:29092
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Target topic: ohlcv-stream
+2025-10-12 14:14:02 | INFO     | KafkaProducer | ✓ Kafka producer initialized successfully
+2025-10-12 14:14:02 | INFO     | KafkaProducer | --------------------------------------------------------------------------------
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Starting data streaming...
+2025-10-12 14:14:02 | INFO     | KafkaProducer | --------------------------------------------------------------------------------
+2025-10-12 14:14:02 | INFO     | KafkaProducer | Fetching all documents from MongoDB...
+2025-10-12 14:14:06 | INFO     | KafkaProducer | ✓ Loaded 52,000 documents into memory
+2025-10-12 14:14:06 | INFO     | KafkaProducer | MongoDB connection closed
+2025-10-12 14:14:15 | INFO     | KafkaProducer | Progress: 10 documents | Rate: 0.78 docs/sec | Delivered: 9 | Failed: 0
+2025-10-12 14:14:15 | INFO     | KafkaProducer | Progress: 10 documents | Document Line Sample given below
+2025-10-12 14:14:15 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:14:15 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f26c",
+  "timestamp": "2025-10-11 11:05:28.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 1747.0,
+    "high": 1747.5,
+    "low": 1746.95,
+    "close": 1746.95,
+    "volume": 721
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 399.55,
+    "high": 399.95,
+    "low": 399.25,
+    "close": 399.35,
+    "volume": 34740
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 420.25,
+    "high": 420.25,
+    "low": 420.0,
+    "close": 420.0,
+    "volume": 2191
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 24314.8,
+    "high": 24314.8,
+    "low": 24314.8,
+    "close": 24314.8,
+    "volume": 1
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 194.3,
+    "high": 194.35,
+    "low": 194.0,
+    "close": 194.15,
+    "volume": 46000
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 892.95,
+    "high": 893.0,
+    "low": 892.0,
+    "close": 892.1,
+    "volume": 2691
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 1158.95,
+    "high": 1159.9,
+    "low": 1158.6,
+    "close": 1159.65,
+    "volume": 3946
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 1429.0,
+    "high": 1435.45,
+    "low": 1427.9,
+    "close": 1435.45,
+    "volume": 1348
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 535.8,
+    "high": 536.5,
+    "low": 535.35,
+    "close": 536.2,
+    "volume": 16188
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "09:24",
+    "open": 573.65,
+    "high": 574.2,
+    "low": 573.35,
+    "close": 573.9,
+    "volume": 73710
+  }
+}
+2025-10-12 14:14:25 | INFO     | KafkaProducer | Progress: 20 documents | Rate: 0.87 docs/sec | Delivered: 19 | Failed: 0
+2025-10-12 14:14:25 | INFO     | KafkaProducer | Progress: 20 documents | Document Line Sample given below
+2025-10-12 14:14:25 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:14:25 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f276",
+  "timestamp": "2025-10-11 11:05:38.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 1751.05,
+    "high": 1751.5,
+    "low": 1750.1,
+    "close": 1751.0,
+    "volume": 1419
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 401.0,
+    "high": 401.3,
+    "low": 400.9,
+    "close": 401.0,
+    "volume": 7246
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 421.55,
+    "high": 422.2,
+    "low": 421.55,
+    "close": 421.8,
+    "volume": 6194
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 24331.2,
+    "high": 24350.0,
+    "low": 24331.2,
+    "close": 24349.0,
+    "volume": 31
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 194.35,
+    "high": 194.5,
+    "low": 194.35,
+    "close": 194.4,
+    "volume": 10688
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 889.9,
+    "high": 890.4,
+    "low": 889.55,
+    "close": 889.8,
+    "volume": 2013
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 1163.45,
+    "high": 1166.15,
+    "low": 1162.7,
+    "close": 1165.9,
+    "volume": 13181
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 1419.0,
+    "high": 1419.75,
+    "low": 1417.5,
+    "close": 1417.5,
+    "volume": 1025
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 534.4,
+    "high": 534.85,
+    "low": 534.0,
+    "close": 534.55,
+    "volume": 22296
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "09:34",
+    "open": 573.0,
+    "high": 573.5,
+    "low": 572.9,
+    "close": 573.3,
+    "volume": 19349
+  }
+}
+2025-10-12 14:14:35 | INFO     | KafkaProducer | Progress: 30 documents | Rate: 0.91 docs/sec | Delivered: 29 | Failed: 0
+2025-10-12 14:14:35 | INFO     | KafkaProducer | Progress: 30 documents | Document Line Sample given below
+2025-10-12 14:14:35 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:14:35 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f280",
+  "timestamp": "2025-10-11 11:05:48.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 1746.0,
+    "high": 1746.8,
+    "low": 1745.0,
+    "close": 1746.6,
+    "volume": 1010
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 400.7,
+    "high": 401.1,
+    "low": 400.6,
+    "close": 401.1,
+    "volume": 18523
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 421.1,
+    "high": 421.1,
+    "low": 421.0,
+    "close": 421.05,
+    "volume": 3900
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 24350.0,
+    "high": 24371.6,
+    "low": 24350.0,
+    "close": 24371.6,
+    "volume": 33
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 194.15,
+    "high": 194.25,
+    "low": 194.05,
+    "close": 194.1,
+    "volume": 5387
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 887.1,
+    "high": 887.15,
+    "low": 887.05,
+    "close": 887.05,
+    "volume": 2473
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 1167.05,
+    "high": 1167.6,
+    "low": 1166.95,
+    "close": 1167.5,
+    "volume": 3424
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 1408.15,
+    "high": 1408.15,
+    "low": 1406.0,
+    "close": 1407.95,
+    "volume": 3153
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 534.9,
+    "high": 535.4,
+    "low": 534.9,
+    "close": 535.05,
+    "volume": 11638
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "09:44",
+    "open": 572.8,
+    "high": 572.8,
+    "low": 571.5,
+    "close": 571.85,
+    "volume": 51862
+  }
+}
+2025-10-12 14:14:45 | INFO     | KafkaProducer | Progress: 40 documents | Rate: 0.93 docs/sec | Delivered: 39 | Failed: 0
+2025-10-12 14:14:45 | INFO     | KafkaProducer | Progress: 40 documents | Document Line Sample given below
+2025-10-12 14:14:45 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:14:45 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f28a",
+  "timestamp": "2025-10-11 11:05:58.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 1746.5,
+    "high": 1747.15,
+    "low": 1746.0,
+    "close": 1747.1,
+    "volume": 3181
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 401.1,
+    "high": 401.3,
+    "low": 401.1,
+    "close": 401.15,
+    "volume": 5222
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 420.05,
+    "high": 420.25,
+    "low": 420.05,
+    "close": 420.15,
+    "volume": 728
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "09:55",
+    "open": 24345.5,
+    "high": 24345.5,
+    "low": 24342.8,
+    "close": 24342.8,
+    "volume": 5
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 192.6,
+    "high": 192.75,
+    "low": 192.2,
+    "close": 192.4,
+    "volume": 105580
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 884.85,
+    "high": 885.0,
+    "low": 884.6,
+    "close": 884.8,
+    "volume": 1640
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 1172.0,
+    "high": 1172.0,
+    "low": 1171.55,
+    "close": 1172.0,
+    "volume": 2677
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 1412.0,
+    "high": 1412.0,
+    "low": 1410.65,
+    "close": 1410.65,
+    "volume": 315
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 534.6,
+    "high": 534.65,
+    "low": 534.5,
+    "close": 534.55,
+    "volume": 9714
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "09:54",
+    "open": 571.6,
+    "high": 571.95,
+    "low": 571.5,
+    "close": 571.85,
+    "volume": 8216
+  }
+}
+2025-10-12 14:14:55 | INFO     | KafkaProducer | Progress: 50 documents | Rate: 0.95 docs/sec | Delivered: 49 | Failed: 0
+2025-10-12 14:14:55 | INFO     | KafkaProducer | Progress: 50 documents | Document Line Sample given below
+2025-10-12 14:14:55 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:14:55 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f294",
+  "timestamp": "2025-10-11 11:06:08.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 1748.05,
+    "high": 1748.75,
+    "low": 1748.05,
+    "close": 1748.75,
+    "volume": 79
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 400.85,
+    "high": 401.2,
+    "low": 400.85,
+    "close": 401.15,
+    "volume": 1491
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 420.65,
+    "high": 420.65,
+    "low": 420.65,
+    "close": 420.65,
+    "volume": 675
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "10:05",
+    "open": 24339.6,
+    "high": 24339.6,
+    "low": 24339.5,
+    "close": 24339.5,
+    "volume": 46
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 192.45,
+    "high": 192.65,
+    "low": 192.45,
+    "close": 192.55,
+    "volume": 11406
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 885.2,
+    "high": 885.25,
+    "low": 885.0,
+    "close": 885.15,
+    "volume": 1442
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 1176.0,
+    "high": 1176.45,
+    "low": 1175.75,
+    "close": 1176.45,
+    "volume": 3099
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 1412.9,
+    "high": 1413.25,
+    "low": 1410.2,
+    "close": 1410.2,
+    "volume": 1096
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 535.7,
+    "high": 535.75,
+    "low": 534.7,
+    "close": 534.9,
+    "volume": 8240
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "10:04",
+    "open": 573.45,
+    "high": 573.75,
+    "low": 572.85,
+    "close": 572.85,
+    "volume": 9230
+  }
+}
+2025-10-12 14:15:05 | INFO     | KafkaProducer | Progress: 60 documents | Rate: 0.95 docs/sec | Delivered: 59 | Failed: 0
+2025-10-12 14:15:05 | INFO     | KafkaProducer | Progress: 60 documents | Document Line Sample given below
+2025-10-12 14:15:05 | INFO     | KafkaProducer | Sample document:
+2025-10-12 14:15:05 | INFO     | KafkaProducer | 
+{
+  "_id": "68e9ec974ec1ba16a510f29e",
+  "timestamp": "2025-10-11 11:06:18.720000",
+  "ACC_combined.csv": {
+    "Type": "ACC",
+    "Date": 20170801,
+    "Time": "10:15",
+    "open": 1748.3,
+    "high": 1748.3,
+    "low": 1747.5,
+    "close": 1747.5,
+    "volume": 60
+  },
+  "ADANIPORTS_combined.csv": {
+    "Type": "ADANIPORTS",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 400.9,
+    "high": 400.9,
+    "low": 400.6,
+    "close": 400.6,
+    "volume": 2188
+  },
+  "BHARTIARTL_combined.csv": {
+    "Type": "BHARTIARTL",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 421.7,
+    "high": 421.75,
+    "low": 421.35,
+    "close": 421.5,
+    "volume": 3284
+  },
+  "BOSCHLTD_combined.csv": {
+    "Type": "BOSCHLTD",
+    "Date": 20170801,
+    "Time": "10:17",
+    "open": 24325.0,
+    "high": 24355.0,
+    "low": 24325.0,
+    "close": 24353.9,
+    "volume": 27
+  },
+  "DLF_combined.csv": {
+    "Type": "DLF",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 192.5,
+    "high": 192.7,
+    "low": 192.5,
+    "close": 192.6,
+    "volume": 24191
+  },
+  "HCLTECH_combined.csv": {
+    "Type": "HCLTECH",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 884.75,
+    "high": 884.85,
+    "low": 884.25,
+    "close": 884.6,
+    "volume": 2785
+  },
+  "HINDUNILVR_combined.csv": {
+    "Type": "HINDUNILVR",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 1174.05,
+    "high": 1174.95,
+    "low": 1172.7,
+    "close": 1172.95,
+    "volume": 4388
+  },
+  "SIEMENS_combined.csv": {
+    "Type": "SIEMENS",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 1411.45,
+    "high": 1411.9,
+    "low": 1411.45,
+    "close": 1411.9,
+    "volume": 72
+  },
+  "SUNPHARMA_combined.csv": {
+    "Type": "SUNPHARMA",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 536.55,
+    "high": 536.7,
+    "low": 536.0,
+    "close": 536.0,
+    "volume": 8278
+  },
+  "TATASTEEL_combined.csv": {
+    "Type": "TATASTEEL",
+    "Date": 20170801,
+    "Time": "10:14",
+    "open": 572.65,
+    "high": 572.9,
+    "low": 572.25,
+    "close": 572.45,
+    "volume": 6820
+  }
+}
