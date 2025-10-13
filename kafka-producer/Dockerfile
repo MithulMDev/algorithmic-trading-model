@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY kafka_producer.py .
 
 # Create logs directory
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs/kafka
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
