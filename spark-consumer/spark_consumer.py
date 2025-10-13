@@ -17,6 +17,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, to_json, struct
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
 
+# import the db managers
+from influx_manager import InfluxManager
+from clickhouse_manager import ClickHouseManager
 
 # ============================================================================
 # Configuration
@@ -42,11 +45,26 @@ class Config:
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
     REDIS_SOCKET_TIMEOUT = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))
     REDIS_KEY_PREFIX = "ohlcv:latest"  # Key pattern: ohlcv:latest:{symbol}
+
+    # InfluxDB Configuration
+    INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
+    INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-auth-token")
+    INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+    INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "ohlcv_data")
+
+    # ClickHouse Configuration
+    CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
+    CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
+    CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+    CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+    CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "default")
     
     # Logging Configuration
     LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
     DATA_LOG_DIR = os.getenv("DATA_LOG_DIR", "/app/logs/data")
     REDIS_LOG_DIR = os.getenv("REDIS_LOG_DIR", "/app/logs/redis")
+    INFLUX_LOG_DIR = os.getenv("INFLUX_LOG_DIR", "/app/logs/influx")          
+    CLICKHOUSE_LOG_DIR = os.getenv("CLICKHOUSE_LOG_DIR", "/app/logs/clickhouse")  
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 
@@ -65,8 +83,10 @@ def setup_logging(config: Config) -> tuple:
     log_dir = Path(config.LOG_DIR)
     data_log_dir = Path(config.DATA_LOG_DIR)
     redis_log_dir = Path(config.REDIS_LOG_DIR)
+    influx_log_dir = Path(config.INFLUX_LOG_DIR)
+    clickhouse_log_dir = Path(config.CLICKHOUSE_LOG_DIR)
     
-    for dir_path in [log_dir, data_log_dir, redis_log_dir]:
+    for dir_path in [log_dir, data_log_dir, redis_log_dir, influx_log_dir, clickhouse_log_dir]:
         dir_path.mkdir(parents=True, exist_ok=True)
     
     # Create log files with timestamp
@@ -74,6 +94,8 @@ def setup_logging(config: Config) -> tuple:
     app_log_file = log_dir / f"spark_{timestamp}.log"
     data_log_file = data_log_dir / f"data_{timestamp}.jsonl"
     redis_log_file = redis_log_dir / f"redis_{timestamp}.log"
+    influx_log_file = influx_log_dir / f"influx_{timestamp}.log"
+    clickhouse_log_file = clickhouse_log_dir / f"clickhouse_{timestamp}.log"
     
     log_level = getattr(logging, config.LOG_LEVEL.upper(), logging.INFO)
     
@@ -112,6 +134,32 @@ def setup_logging(config: Config) -> tuple:
         datefmt='%Y-%m-%d %H:%M:%S'
     ))
     redis_logger.addHandler(redis_file_handler)
+
+    # === InfluxDB Logger ===
+    influx_logger = logging.getLogger("Influx")
+    influx_logger.setLevel(log_level)
+    influx_logger.handlers = []
+    influx_logger.propagate = False
+    
+    influx_file_handler = logging.FileHandler(influx_log_file)
+    influx_file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    influx_logger.addHandler(influx_file_handler)
+    
+    # === ClickHouse Logger ===
+    clickhouse_logger = logging.getLogger("ClickHouse")
+    clickhouse_logger.setLevel(log_level)
+    clickhouse_logger.handlers = []
+    clickhouse_logger.propagate = False
+    
+    clickhouse_file_handler = logging.FileHandler(clickhouse_log_file)
+    clickhouse_file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    clickhouse_logger.addHandler(clickhouse_file_handler)
     
     # Initialize logs
     main_logger.info("=" * 80)
@@ -120,9 +168,11 @@ def setup_logging(config: Config) -> tuple:
     main_logger.info(f"App Log:   {app_log_file}")
     main_logger.info(f"Data Log:  {data_log_file}")
     main_logger.info(f"Redis Log: {redis_log_file}")
+    main_logger.info(f"InfluxDB Log:   {influx_log_file}")
+    main_logger.info(f"ClickHouse Log: {clickhouse_log_file}")
     main_logger.info("=" * 80)
     
-    return main_logger, data_log_file, redis_logger
+    return main_logger, data_log_file, redis_logger, influx_logger, clickhouse_logger
 
 
 # ============================================================================
@@ -338,12 +388,15 @@ class StreamingQueryHandler:
     """Handler for Spark Structured Streaming query"""
     
     def __init__(self, config: Config, logger: logging.Logger, 
-                 data_log_file: Path, redis_manager: RedisManager):
+             data_log_file: Path, redis_manager: RedisManager,
+             influx_manager: InfluxManager, clickhouse_manager: ClickHouseManager):
         """Initialize handler"""
         self.config = config
         self.logger = logger
         self.data_log_file = data_log_file
         self.redis_manager = redis_manager
+        self.influx_manager = influx_manager
+        self.clickhouse_manager = clickhouse_manager 
         self.processed_count = 0
         self.batch_count = 0
         self.total_symbols_written = 0
@@ -430,6 +483,8 @@ class StreamingQueryHandler:
                     'timestamp': kafka_timestamp
                 }
                 
+                all_symbols_data = []
+
                 for symbol_name, symbol_data, record_timestamp in symbols:
                     success = self.redis_manager.store_latest_record(
                         symbol=symbol_name,
@@ -438,6 +493,8 @@ class StreamingQueryHandler:
                         kafka_meta=kafka_meta,
                         batch_id=batch_id
                     )
+
+                    all_symbols_data.append((symbol_name, symbol_data, record_timestamp, kafka_meta))
                     
                     if success:
                         redis_success_count += 1
@@ -449,13 +506,21 @@ class StreamingQueryHandler:
             
             # Flush data log
             self.data_log_handle.flush()
-            
+
+            # Batch write to InfluxDB
+            influx_result = self.influx_manager.write_batch(all_symbols_data, batch_id)
+
+            # Batch write to ClickHouse
+            clickhouse_result = self.clickhouse_manager.write_batch(all_symbols_data, batch_id)
+
             # Batch summary
             self.logger.info(
                 f"Batch {batch_id} Complete | "
                 f"Kafka Records: {batch_size} | "
-                f"Symbols Written: {redis_success_count} | "
-                f"Failed: {redis_fail_count} | "
+                f"Redis Symbols: {redis_success_count} | "
+                f"Redis Failed: {redis_fail_count} | "
+                f"InfluxDB: {influx_result['success']}/{influx_result['failed']} | "
+                f"ClickHouse: {clickhouse_result['success']}/{clickhouse_result['failed']} | "
                 f"Total: {self.processed_count} records, {self.total_symbols_written} symbols"
             )
             self.logger.info("=" * 80)
@@ -486,6 +551,8 @@ class SparkKafkaConsumer:
         self.logger, self.data_log_file, self.redis_logger = setup_logging(config)
         self.spark: Optional[SparkSession] = None
         self.redis_manager: Optional[RedisManager] = None
+        self.influx_manager: Optional[InfluxManager] = None
+        self.clickhouse_manager: Optional[ClickHouseManager] = None
         self.handler: Optional[StreamingQueryHandler] = None
         self.query = None
     
@@ -506,13 +573,22 @@ class SparkKafkaConsumer:
             
             # Initialize Redis
             self.redis_manager = RedisManager(self.config, self.logger, self.redis_logger)
+
+            # Initialize InfluxDB
+            self.influx_manager = InfluxManager(self.config, self.logger, self.influx_logger)
+
+            # Initialize ClickHouse
+            self.clickhouse_manager = ClickHouseManager(self.config, self.logger, self.clickhouse_logger)
+
             
             # Create query handler
             self.handler = StreamingQueryHandler(
                 self.config, 
                 self.logger, 
                 self.data_log_file,
-                self.redis_manager
+                self.redis_manager,
+                self.influx_manager,
+                self.clickhouse_manager
             )
             
             self.logger.info("-" * 80)
@@ -603,6 +679,30 @@ class SparkKafkaConsumer:
             self.logger.info("-" * 80)
             
             self.redis_manager.close()
+
+        # Get influx statistics
+        if self.influx_manager:
+            influx_stats = self.influx_manager.get_statistics()
+            self.logger.info("-" * 80)
+            self.logger.info("INFLUXDB STATISTICS")
+            self.logger.info("-" * 80)
+            self.logger.info(f"Total Points: {influx_stats['total_writes']}")
+            self.logger.info(f"Total Errors: {influx_stats['total_errors']}")
+            self.logger.info(f"Unique Symbols: {influx_stats['unique_symbols']}")
+            self.logger.info("-" * 80)
+            self.influx_manager.close()
+
+        # Get clickhouse statistics
+        if self.clickhouse_manager:
+            clickhouse_stats = self.clickhouse_manager.get_statistics()
+            self.logger.info("-" * 80)
+            self.logger.info("CLICKHOUSE STATISTICS")
+            self.logger.info("-" * 80)
+            self.logger.info(f"Total Rows: {clickhouse_stats['total_writes']}")
+            self.logger.info(f"Total Errors: {clickhouse_stats['total_errors']}")
+            self.logger.info(f"Unique Symbols: {clickhouse_stats['unique_symbols']}")
+            self.logger.info("-" * 80)
+            self.clickhouse_manager.close()
         
         # Stop Spark
         if self.spark:

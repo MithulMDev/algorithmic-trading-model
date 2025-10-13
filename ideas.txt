@@ -1,0 +1,4 @@
+
+after the whole build
+- host influxdb and clickhouse as separate services on fastapi
+- connect the spark to http api and then communicate to influxdb and clickhouse

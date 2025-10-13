@@ -2,6 +2,6 @@ organized_files_data/*
 parquet_files/*
 file_processors/streamable_csv_files/**
 file_processors/trainable_csv_files/**
-.env
 helper_docs/**
-logs/**
+
+.env

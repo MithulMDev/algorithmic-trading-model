@@ -129,6 +129,50 @@ services:
     networks:
       - kafka-network
 
+  # Influxdb
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: password123
+      DOCKER_INFLUXDB_INIT_ORG: my-org
+      DOCKER_INFLUXDB_INIT_BUCKET: ohlcv_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-secret-auth-token
+    networks:
+      - kafka-network
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ClickHouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    networks:
+      - kafka-network
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Spark Consumer Application
   spark-consumer:
     build:
@@ -139,6 +183,10 @@ services:
       kafka:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       producer:
         condition: service_started
@@ -158,6 +206,17 @@ services:
       REDIS_PORT: "6379"
       REDIS_DB: "0"
       REDIS_SOCKET_TIMEOUT: "5"
+      # InfluxDB Configuration
+      INFLUX_URL: "http://influxdb:8086"
+      INFLUX_TOKEN: "my-super-secret-auth-token"
+      INFLUX_ORG: "my-org"
+      INFLUX_BUCKET: "ohlcv_data"
+      # ClickHouse Configuration
+      CLICKHOUSE_HOST: "clickhouse"
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: "default"
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: "default"
     networks:
       - kafka-network
     volumes:
@@ -180,4 +239,7 @@ volumes:
     driver: local
   spark-checkpoints:
     driver: local
-    
+  influxdb-data:
+    driver: local
+  clickhouse-data:
+    driver: local
