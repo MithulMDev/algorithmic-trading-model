@@ -26,6 +26,8 @@ RUN mkdir -p /app/logs /app/logs/data /app/checkpoints
 
 # Copy application
 COPY spark_consumer.py .
+COPY influx_manager.py .
+COPY clickhouse_manager.py .
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1

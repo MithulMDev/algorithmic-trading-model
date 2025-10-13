@@ -239,6 +239,7 @@ volumes:
     driver: local
   spark-checkpoints:
     driver: local
+  # Need to comment this out - so that data is not stored locally and clears on restart or every compose up
   influxdb-data:
     driver: local
   clickhouse-data:

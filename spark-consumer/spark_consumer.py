@@ -548,7 +548,7 @@ class SparkKafkaConsumer:
     def __init__(self, config: Config):
         """Initialize consumer"""
         self.config = config
-        self.logger, self.data_log_file, self.redis_logger = setup_logging(config)
+        self.logger, self.data_log_file, self.redis_logger, self.influx_logger, self.clickhouse_logger = setup_logging(config)
         self.spark: Optional[SparkSession] = None
         self.redis_manager: Optional[RedisManager] = None
         self.influx_manager: Optional[InfluxManager] = None
