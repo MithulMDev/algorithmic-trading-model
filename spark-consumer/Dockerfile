@@ -15,8 +15,11 @@ RUN apt-get update && apt-get install -y \
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Install PySpark (works perfectly with Java 21)
-RUN pip install --no-cache-dir pyspark==3.5.0
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies from requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Create directories
 RUN mkdir -p /app/logs /app/logs/data /app/checkpoints

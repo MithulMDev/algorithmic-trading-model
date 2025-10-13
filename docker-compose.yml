@@ -56,6 +56,22 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
 
+  # Redis - In-Memory Cache for Latest OHLCV Data
+  redis:
+    image: redis:7.2-alpine
+    hostname: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # Python Producer Application
   producer:
     build:
@@ -122,6 +138,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       producer:
         condition: service_started
     environment:
@@ -135,6 +153,11 @@ services:
       LOG_DIR: "/app/logs"
       DATA_LOG_DIR: "/app/logs/data"
       LOG_LEVEL: "INFO"
+      # Redis Configuration
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_SOCKET_TIMEOUT: "5"
     networks:
       - kafka-network
     volumes:
@@ -156,4 +179,5 @@ volumes:
   kafka-data:
     driver: local
   spark-checkpoints:
-    driver: local     
+    driver: local
+    
