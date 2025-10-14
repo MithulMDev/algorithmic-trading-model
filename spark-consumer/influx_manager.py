@@ -1,6 +1,6 @@
 """
 InfluxDB Manager for Time-Series OHLCV Data
-Handles batch writes to InfluxDB
+Handles batch writes to InfluxDB with verification
 """
 
 import logging
@@ -21,6 +21,7 @@ class InfluxManager:
         self.influx_logger = influx_logger
         self.client: Optional[InfluxDBClient] = None
         self.write_api = None
+        self.query_api = None
         self.write_count = 0
         self.error_count = 0
         self.symbols_written = set()
@@ -48,9 +49,15 @@ class InfluxManager:
             # Get write API (synchronous for simplicity)
             self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
             
+            # Get query API for verification
+            self.query_api = self.client.query_api()
+            
             # Test connection
             self.client.ping()
             self.logger.info("InfluxDB connected successfully")
+            
+            # Verify bucket exists
+            self._verify_bucket()
             
             # InfluxDB log header
             self.influx_logger.info("Status: CONNECTED ✓")
@@ -64,6 +71,21 @@ class InfluxManager:
             self.influx_logger.info(f"Error: {str(e)}")
             self.influx_logger.info("=" * 80)
             raise
+    
+    def _verify_bucket(self):
+        """Verify bucket exists and is accessible"""
+        try:
+            buckets_api = self.client.buckets_api()
+            bucket = buckets_api.find_bucket_by_name(self.config.INFLUX_BUCKET)
+            
+            if bucket:
+                self.influx_logger.info(f"Bucket '{self.config.INFLUX_BUCKET}' found ✓")
+                self.influx_logger.info(f"Bucket ID: {bucket.id}")
+            else:
+                self.influx_logger.info(f"WARNING: Bucket '{self.config.INFLUX_BUCKET}' not found!")
+                self.logger.warning(f"Bucket '{self.config.INFLUX_BUCKET}' not found in InfluxDB")
+        except Exception as e:
+            self.influx_logger.info(f"Could not verify bucket: {str(e)}")
     
     def write_batch(self, symbols_data: List[tuple], batch_id: int) -> Dict[str, int]:
         """
@@ -91,11 +113,15 @@ class InfluxManager:
             
             # Track first symbol for detailed logging
             first_symbol_logged = False
+            first_timestamp = None
             
             for symbol_name, symbol_data, record_timestamp, kafka_meta in symbols_data:
                 try:
                     # Parse timestamp
                     timestamp = datetime.fromisoformat(record_timestamp.replace(' ', 'T'))
+                    
+                    if first_timestamp is None:
+                        first_timestamp = timestamp
                     
                     # Create InfluxDB point
                     point = (
@@ -116,9 +142,11 @@ class InfluxManager:
                     
                     # Log first symbol details
                     if not first_symbol_logged:
-                        self.influx_logger.info("Sample Point:")
-                        self.influx_logger.info(f"  Symbol: {symbol_name}")
+                        self.influx_logger.info("Sample Point Details:")
+                        self.influx_logger.info(f"  Measurement: stock_prices")
+                        self.influx_logger.info(f"  Symbol (tag): {symbol_name}")
                         self.influx_logger.info(f"  Timestamp: {timestamp}")
+                        self.influx_logger.info(f"  Timestamp (ISO): {timestamp.isoformat()}")
                         self.influx_logger.info(f"  OHLC: O=${symbol_data.get('open', 0):.2f} "
                                                f"H=${symbol_data.get('high', 0):.2f} "
                                                f"L=${symbol_data.get('low', 0):.2f} "
@@ -135,23 +163,38 @@ class InfluxManager:
             
             # Batch write all points
             if points:
-                self.influx_logger.info(f"Writing {len(points)} points to InfluxDB...")
+                self.influx_logger.info(f"Attempting to write {len(points)} points to InfluxDB...")
+                self.influx_logger.info(f"Target: Bucket='{self.config.INFLUX_BUCKET}' Org='{self.config.INFLUX_ORG}'")
                 
-                self.write_api.write(
-                    bucket=self.config.INFLUX_BUCKET,
-                    org=self.config.INFLUX_ORG,
-                    record=points
-                )
-                success_count = len(points)
-                self.write_count += success_count
-                
-                # Log success with symbols
-                symbols_sample = sorted(set([p._tags['symbol'] for p in points[:5]]))
-                self.influx_logger.info(f"SUCCESS | Points Written: {success_count}")
-                self.influx_logger.info(f"Symbols: {', '.join(symbols_sample)}"
-                                       f"{' ...' if len(points) > 5 else ''}")
-                self.influx_logger.info(f"Total Points So Far: {self.write_count}")
-                self.influx_logger.info(f"Unique Symbols: {len(self.symbols_written)}")
+                try:
+                    self.write_api.write(
+                        bucket=self.config.INFLUX_BUCKET,
+                        org=self.config.INFLUX_ORG,
+                        record=points
+                    )
+                    success_count = len(points)
+                    self.write_count += success_count
+                    
+                    # Log success with symbols
+                    symbols_sample = sorted(set([p._tags['symbol'] for p in points[:5]]))
+                    self.influx_logger.info(f"WRITE COMPLETED ✓")
+                    self.influx_logger.info(f"Points Written: {success_count}")
+                    self.influx_logger.info(f"Symbols: {', '.join(symbols_sample)}"
+                                           f"{' ...' if len(points) > 5 else ''}")
+                    
+                    # VERIFY: Query to check if data actually exists
+                    self.influx_logger.info("-" * 80)
+                    self.influx_logger.info("VERIFYING DATA IN INFLUXDB...")
+                    self._verify_data_written(first_timestamp, batch_id)
+                    
+                    self.influx_logger.info(f"Total Points So Far: {self.write_count}")
+                    self.influx_logger.info(f"Unique Symbols: {len(self.symbols_written)}")
+                    
+                except Exception as write_error:
+                    self.influx_logger.info(f"WRITE FAILED ✗")
+                    self.influx_logger.info(f"Error: {str(write_error)}")
+                    self.logger.error(f"InfluxDB write error: {write_error}", exc_info=True)
+                    raise
             
         except Exception as e:
             self.error_count += len(symbols_data)
@@ -164,6 +207,68 @@ class InfluxManager:
             self.influx_logger.info("=" * 80)
         
         return {'success': success_count, 'failed': fail_count}
+    
+    def _verify_data_written(self, timestamp, batch_id):
+        """Verify data was actually written to InfluxDB"""
+        try:
+            # Calculate time range around the data timestamp
+            data_date = timestamp.date()
+            start_time = f"{data_date}T00:00:00Z"
+            end_time = f"{data_date}T23:59:59Z"
+            
+            self.influx_logger.info("Running verification query...")
+            self.influx_logger.info(f"Checking for data on date: {data_date}")
+            
+            # Query using the actual data timestamp range
+            query = f'''
+            from(bucket: "{self.config.INFLUX_BUCKET}")
+              |> range(start: {start_time}, stop: {end_time})
+              |> filter(fn: (r) => r["_measurement"] == "stock_prices")
+              |> count()
+            '''
+            
+            result = self.query_api.query(org=self.config.INFLUX_ORG, query=query)
+            
+            total_records = 0
+            for table in result:
+                for record in table.records:
+                    total_records += record.get_value()
+            
+            if total_records > 0:
+                self.influx_logger.info(f"VERIFICATION SUCCESS ✓")
+                self.influx_logger.info(f"Found {total_records} records in bucket")
+            else:
+                self.influx_logger.info(f"VERIFICATION WARNING ⚠")
+                self.influx_logger.info(f"No records found in bucket for this timestamp")
+            
+            # Query for sample record with actual timestamp
+            sample_query = f'''
+            from(bucket: "{self.config.INFLUX_BUCKET}")
+              |> range(start: {start_time}, stop: {end_time})
+              |> filter(fn: (r) => r["_measurement"] == "stock_prices")
+              |> limit(n: 1)
+            '''
+            
+            sample_result = self.query_api.query(org=self.config.INFLUX_ORG, query=sample_query)
+            
+            if sample_result and len(sample_result) > 0:
+                self.influx_logger.info(f"Measurement 'stock_prices' exists ✓")
+                # Log first record details
+                for table in sample_result:
+                    if table.records:
+                        first_record = table.records[0]
+                        self.influx_logger.info(f"Sample Record from DB:")
+                        self.influx_logger.info(f"  Time: {first_record.get_time()}")
+                        self.influx_logger.info(f"  Symbol: {first_record.values.get('symbol', 'N/A')}")
+                        self.influx_logger.info(f"  Field: {first_record.get_field()}")
+                        self.influx_logger.info(f"  Value: {first_record.get_value()}")
+                        break
+            else:
+                self.influx_logger.info(f"No data found for date {data_date}")
+            
+        except Exception as e:
+            self.influx_logger.info(f"Verification query failed: {str(e)}")
+            self.logger.error(f"Verification error: {e}", exc_info=True)
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get InfluxDB operation statistics"""
@@ -178,7 +283,57 @@ class InfluxManager:
         """Close InfluxDB connection"""
         if self.client:
             try:
-                # Final summary to InfluxDB log
+                # Final verification query
+                self.influx_logger.info("=" * 80)
+                self.influx_logger.info("FINAL DATA VERIFICATION")
+                self.influx_logger.info("=" * 80)
+                
+                try:
+                    # Count all records (no time limit for historical data)
+                    count_query = f'''
+                    from(bucket: "{self.config.INFLUX_BUCKET}")
+                      |> range(start: 2017-01-01T00:00:00Z, stop: now())
+                      |> filter(fn: (r) => r["_measurement"] == "stock_prices")
+                      |> count()
+                    '''
+                    
+                    result = self.query_api.query(org=self.config.INFLUX_ORG, query=count_query)
+                    
+                    total_in_db = 0
+                    for table in result:
+                        for record in table.records:
+                            total_in_db += record.get_value()
+                    
+                    self.influx_logger.info(f"Total records in InfluxDB (all time): {total_in_db:,}")
+                    
+                    if total_in_db > 0:
+                        # Get timestamp range
+                        range_query = f'''
+                        from(bucket: "{self.config.INFLUX_BUCKET}")
+                          |> range(start: 2017-01-01T00:00:00Z, stop: now())
+                          |> filter(fn: (r) => r["_measurement"] == "stock_prices")
+                          |> group()
+                          |> first()
+                        '''
+                        range_result = self.query_api.query(org=self.config.INFLUX_ORG, query=range_query)
+                        
+                        if range_result and len(range_result) > 0:
+                            for table in range_result:
+                                if table.records:
+                                    first_time = table.records[0].get_time()
+                                    self.influx_logger.info(f"Earliest record: {first_time}")
+                                    break
+                    else:
+                        self.influx_logger.info("WARNING: No data found in InfluxDB!")
+                        self.influx_logger.info("Possible issues:")
+                        self.influx_logger.info("  1. Write operation failed silently")
+                        self.influx_logger.info("  2. Writing to wrong bucket/org")
+                        self.influx_logger.info("  3. Data not persisting")
+                    
+                except Exception as query_error:
+                    self.influx_logger.info(f"Final verification failed: {str(query_error)}")
+                
+                # Final summary
                 self.influx_logger.info("=" * 80)
                 self.influx_logger.info("INFLUXDB SESSION SUMMARY")
                 self.influx_logger.info("=" * 80)

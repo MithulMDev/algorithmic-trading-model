@@ -559,19 +559,22 @@ class OHLCVStreamProducer:
     
     def process_single_document(self, doc: Dict[str, Any]):
         """Process single document"""
-        # Extract timestamp for key
-        timestamp = doc.get('timestamp')
-        if timestamp:
-            key = timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
-        else:
-            key = str(doc.get('_id'))
+        # Create a copy to avoid modifying original data
+        doc_copy = doc.copy()
+        
+        # Replace timestamp with current time to simulate live data
+        current_timestamp = datetime.now()
+        doc_copy['timestamp'] = current_timestamp
+        
+        # Use current timestamp for key
+        key = current_timestamp.isoformat()
         
         # Convert ObjectId to string
-        if '_id' in doc:
-            doc['_id'] = str(doc['_id'])
+        if '_id' in doc_copy:
+            doc_copy['_id'] = str(doc_copy['_id'])
         
-        # Send to Kafka
-        success = self.kafka_helper.produce_message(key=key, value=doc)
+        # Send to Kafka with modified timestamp
+        success = self.kafka_helper.produce_message(key=key, value=doc_copy)
         
         if not success:
             self.logger.warning(f"⚠ Failed to send document | Key: {key}")
