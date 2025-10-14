@@ -173,6 +173,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ClickHouse Web UI (Tabix)
+  clickhouse-ui:
+    image: spoonest/clickhouse-tabix-web-client:latest
+    container_name: clickhouse-ui
+    depends_on:
+      - clickhouse
+    ports:
+      - "8088:80"
+    networks:
+      - kafka-network
+    environment:
+      CH_HOST: clickhouse
+      CH_PORT: 8123
+      CH_USER: default
+      CH_PASS: ""
+
   # Spark Consumer Application
   spark-consumer:
     build:
