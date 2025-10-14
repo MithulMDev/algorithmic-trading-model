@@ -357,4 +357,4 @@ class InfluxManager:
                 self.logger.info("InfluxDB connection closed")
             except Exception as e:
                 self.logger.error(f"Error closing InfluxDB: {e}")
-                self.influx_logger.info(f"Error during close: {str(e)}")
+                self.influx_logger.info(f"Error during close: {str(e)}") 
