@@ -27,7 +27,7 @@ class IndicatorEngine:
     Maintains per-symbol history and calculates indicators
     """
     
-    def __init__(self, redis_host: str = "redis", redis_port: int = 6379, 
+    def __init__(self, logger, redis_host: str = "redis", redis_port: int = 6379, 
                  redis_db: int = 1, warmup_rows: int = 30):
         """
         Initialize IndicatorEngine
@@ -64,16 +64,7 @@ class IndicatorEngine:
         self.warmed_up_symbols = set()
         
         # Logger
-        self.logger = logging.getLogger("IndicatorEngine")
-        self.logger.setLevel(logging.INFO)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter(
-                '%(asctime)s | INDICATOR | %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            ))
-            self.logger.addHandler(handler)
-        
+        self.logger = logger or logging.getLogger("IndicatorEngine")
         self.logger.info("=" * 80)
         self.logger.info("INDICATOR ENGINE INITIALIZED")
         self.logger.info("=" * 80)

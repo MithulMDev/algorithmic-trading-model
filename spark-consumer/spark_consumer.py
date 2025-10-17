@@ -73,7 +73,8 @@ class Config:
     DATA_LOG_DIR = os.getenv("DATA_LOG_DIR", "/app/logs/data")
     REDIS_LOG_DIR = os.getenv("REDIS_LOG_DIR", "/app/logs/redis")
     INFLUX_LOG_DIR = os.getenv("INFLUX_LOG_DIR", "/app/logs/influx")          
-    CLICKHOUSE_LOG_DIR = os.getenv("CLICKHOUSE_LOG_DIR", "/app/logs/clickhouse")  
+    CLICKHOUSE_LOG_DIR = os.getenv("CLICKHOUSE_LOG_DIR", "/app/logs/clickhouse")
+    INDICATOR_ENG_LOG_DIR = os.getenv("INDICATOR_ENG_LOG_DIR", "/app/logs/aux_processors")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 
@@ -88,8 +89,9 @@ def setup_logging(config: Config) -> tuple:
     redis_log_dir = Path(config.REDIS_LOG_DIR)
     influx_log_dir = Path(config.INFLUX_LOG_DIR)
     clickhouse_log_dir = Path(config.CLICKHOUSE_LOG_DIR)
+    indicator_eng_dir = Path(config.INDICATOR_ENG_LOG_DIR)
     
-    for dir_path in [log_dir, data_log_dir, redis_log_dir, influx_log_dir, clickhouse_log_dir]:
+    for dir_path in [log_dir, data_log_dir, redis_log_dir, influx_log_dir, clickhouse_log_dir, indicator_eng_dir]:
         dir_path.mkdir(parents=True, exist_ok=True)
     
     # Create log files with timestamp
@@ -99,6 +101,7 @@ def setup_logging(config: Config) -> tuple:
     redis_log_file = redis_log_dir / f"redis_{timestamp}.log"
     influx_log_file = influx_log_dir / f"influx_{timestamp}.log"
     clickhouse_log_file = clickhouse_log_dir / f"clickhouse_{timestamp}.log"
+    indicatoreng_log_file = indicator_eng_dir / f"indicator_eng_{timestamp}.log"
     
     log_level = getattr(logging, config.LOG_LEVEL.upper(), logging.INFO)
     
@@ -123,6 +126,20 @@ def setup_logging(config: Config) -> tuple:
     
     main_logger.addHandler(app_file_handler)
     main_logger.addHandler(app_console_handler)
+
+    # === Indicator Engine Logger (Separate) ===
+    indicator_eng_logger = logging.getLogger("IndicatorEngine")
+    indicator_eng_logger.setLevel(log_level)
+    indicator_eng_logger.handlers = []
+    indicator_eng_logger.propagate = False
+    
+    # File handler for Redis
+    indicator_eng_file_handler = logging.FileHandler(indicatoreng_log_file)
+    indicator_eng_file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    indicator_eng_logger.addHandler(indicator_eng_file_handler)
     
     # === Redis Logger (Separate) ===
     redis_logger = logging.getLogger("Redis")
@@ -173,12 +190,12 @@ def setup_logging(config: Config) -> tuple:
     main_logger.info(f"Redis Log: {redis_log_file}")
     main_logger.info(f"InfluxDB Log:   {influx_log_file}")
     main_logger.info(f"ClickHouse Log: {clickhouse_log_file}")
+    main_logger.info(f"IndicatorEngine Log: {indicatoreng_log_file}")
     main_logger.info("=" * 80)
     
-    return main_logger, data_log_file, redis_logger, influx_logger, clickhouse_logger
+    return main_logger, data_log_file, redis_logger, influx_logger, clickhouse_logger, indicator_eng_logger
 
 
-# ... [Keep RedisManager exactly as is] ...
 
 class RedisManager:
     """Manages Redis connections and operations"""
@@ -304,7 +321,6 @@ class RedisManager:
                 self.logger.error(f"Error closing Redis: {e}")
 
 
-# ... [Keep create_spark_session exactly as is] ...
 
 def create_spark_session(config: Config, logger: logging.Logger) -> Optional[SparkSession]:
     """Create and configure Spark session"""
@@ -400,7 +416,7 @@ class StreamingQueryHandler:
         self.redis_manager = redis_manager
         self.influx_manager = influx_manager
         self.clickhouse_manager = clickhouse_manager
-        self.indicator_engine = indicator_engine 
+        self.indicator_engine = indicator_engine
         self.processed_count = 0
         self.batch_count = 0
         self.total_symbols_written = 0
@@ -600,14 +616,13 @@ class StreamingQueryHandler:
             self.logger.info(f"Data log closed: {self.processed_count} symbols, {self.batch_count} batches")
 
 
-# ... [Keep SparkKafkaConsumer and main exactly as is] ...
 
 class SparkKafkaConsumer:
     """Main class for Spark Kafka streaming consumer with indicator enrichment"""
     
     def __init__(self, config: Config):
         self.config = config
-        self.logger, self.data_log_file, self.redis_logger, self.influx_logger, self.clickhouse_logger = setup_logging(config)
+        self.logger, self.data_log_file, self.redis_logger, self.influx_logger, self.clickhouse_logger, self.indicator_eng_logger = setup_logging(config)
         self.spark: Optional[SparkSession] = None
         self.redis_manager: Optional[RedisManager] = None
         self.influx_manager: Optional[InfluxManager] = None
@@ -636,7 +651,7 @@ class SparkKafkaConsumer:
             # Initialize InfluxDB
             self.influx_manager = InfluxManager(self.config, self.logger, self.influx_logger)
             self.clickhouse_manager = ClickHouseManager(self.config, self.logger, self.clickhouse_logger)
-            self.indicator_engine = IndicatorEngine()
+            self.indicator_engine = IndicatorEngine(self.indicator_eng_logger)
             self.logger.info("Indicator Engine initialized")
             
             self.handler = StreamingQueryHandler(
