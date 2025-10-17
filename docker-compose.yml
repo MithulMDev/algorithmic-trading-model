@@ -72,6 +72,22 @@ services:
       timeout: 3s
       retries: 5
 
+  # RedisInsight - Official Redis GUI
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    depends_on:
+      - redis
+    ports:
+      - "5540:5540"
+    networks:
+      - kafka-network
+    volumes:
+      - redis-insight-data:/data
+    environment:
+      RIPORT: 5540
+      RIHOST: 0.0.0.0
+
   # Python Producer Application
   producer:
     build:
@@ -251,6 +267,8 @@ networks:
     driver: bridge
 
 volumes:
+  redis-insight-data:
+    driver: local
   kafka-data:
     driver: local
   spark-checkpoints:

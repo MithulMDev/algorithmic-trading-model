@@ -1,0 +1,1 @@
+- replace the method of using maps group with state with a indicator engine + redis architecture

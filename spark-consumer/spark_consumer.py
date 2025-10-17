@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Kafka to Spark Consumer with Redis Integration (Docker-Ready)
-Reads OHLCV data from Kafka, logs it, and stores latest records per symbol in Redis
+Reads OHLCV data from Kafka, explodes by symbol, enriches with indicators, 
+and stores in Redis, InfluxDB, and ClickHouse
 """
 
 import json
@@ -14,12 +15,20 @@ from typing import Optional, Dict, Any
 
 import redis
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, to_json, struct
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
+from pyspark.sql.functions import col, explode, udf
+from pyspark.sql.types import (
+    StructType, StructField, StringType, DoubleType, 
+    TimestampType, ArrayType, IntegerType
+)
 
 # import the db managers
 from influx_manager import InfluxManager
 from clickhouse_manager import ClickHouseManager
+
+# import the indicator engine
+from indicator_engine import IndicatorEngine
+
+# ... [Keep all the Config, setup_logging, RedisManager, create_spark_session code exactly as is] ...
 
 # ============================================================================
 # Configuration
@@ -36,7 +45,7 @@ class Config:
     
     # Spark Configuration
     APP_NAME = os.getenv("SPARK_APP_NAME", "OHLCV-Spark-Consumer")
-    TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "5 seconds")
+    TRIGGER_INTERVAL = os.getenv("TRIGGER_INTERVAL", "500 milliseconds")
     CHECKPOINT_LOCATION = os.getenv("CHECKPOINT_LOCATION", "/app/checkpoints")
     
     # Redis Configuration
@@ -44,7 +53,7 @@ class Config:
     REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
     REDIS_SOCKET_TIMEOUT = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))
-    REDIS_KEY_PREFIX = "ohlcv:latest"  # Key pattern: ohlcv:latest:{symbol}
+    REDIS_KEY_PREFIX = "ohlcv:latest"
 
     # InfluxDB Configuration
     INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
@@ -69,17 +78,11 @@ class Config:
 
 
 # ============================================================================
-# Logging Setup - Clean and Minimal
+# Logging Setup
 # ============================================================================
 
 def setup_logging(config: Config) -> tuple:
-    """
-    Set up clean, minimal logging to separate files
-    
-    Returns:
-        Tuple of (main_logger, data_log_file, redis_logger)
-    """
-    # Create directories
+    """Set up logging"""
     log_dir = Path(config.LOG_DIR)
     data_log_dir = Path(config.DATA_LOG_DIR)
     redis_log_dir = Path(config.REDIS_LOG_DIR)
@@ -125,7 +128,7 @@ def setup_logging(config: Config) -> tuple:
     redis_logger = logging.getLogger("Redis")
     redis_logger.setLevel(log_level)
     redis_logger.handlers = []
-    redis_logger.propagate = False  # Don't propagate to root
+    redis_logger.propagate = False
     
     # File handler for Redis
     redis_file_handler = logging.FileHandler(redis_log_file)
@@ -175,9 +178,7 @@ def setup_logging(config: Config) -> tuple:
     return main_logger, data_log_file, redis_logger, influx_logger, clickhouse_logger
 
 
-# ============================================================================
-# Redis Manager - Clean Logging
-# ============================================================================
+# ... [Keep RedisManager exactly as is] ...
 
 class RedisManager:
     """Manages Redis connections and operations"""
@@ -238,8 +239,8 @@ class RedisManager:
                 'low': str(data.get('low', '')),
                 'close': str(data.get('close', '')),
                 'volume': str(data.get('volume', '')),
-                'date': str(data.get('Date', '')),
-                'time': str(data.get('Time', '')),
+                'date': str(data.get('date', '')),
+                'time': str(data.get('time', '')),
                 'record_timestamp': record_timestamp,
                 'last_updated': datetime.now().isoformat(),
                 'kafka_partition': str(kafka_meta.get('partition', '')),
@@ -254,11 +255,11 @@ class RedisManager:
             self.write_count += 1
             self.symbols_updated.add(symbol)
             
-            # Clean Redis log
-            close_price = float(data.get('close', 0))
-            volume = float(data.get('volume', 0))
+            # Safe logging with None handling
+            close_price = float(data.get('close', 0)) if data.get('close') is not None else 0
+            volume = float(data.get('volume', 0)) if data.get('volume') is not None else 0
             self.redis_logger.info(
-                f"{symbol:<15} | Date: {data.get('Date', 'N/A'):<8} Time: {data.get('Time', 'N/A'):<6} | "
+                f"{symbol:<15} | Date: {data.get('date', 'N/A'):<8} Time: {data.get('time', 'N/A'):<6} | "
                 f"Close: ${close_price:>10,.2f} | Volume: {volume:>12,.0f} | "
                 f"Offset: {kafka_meta.get('offset', 'N/A'):<6}"
             )
@@ -303,9 +304,7 @@ class RedisManager:
                 self.logger.error(f"Error closing Redis: {e}")
 
 
-# ============================================================================
-# Spark Session Setup
-# ============================================================================
+# ... [Keep create_spark_session exactly as is] ...
 
 def create_spark_session(config: Config, logger: logging.Logger) -> Optional[SparkSession]:
     """Create and configure Spark session"""
@@ -332,71 +331,76 @@ def create_spark_session(config: Config, logger: logging.Logger) -> Optional[Spa
 
 
 # ============================================================================
-# Schema Definition
+# UDF for Symbol Explosion - WITH DEBUGGING
 # ============================================================================
 
-def get_ohlcv_schema() -> StructType:
-    """Define schema for OHLCV data"""
-    return StructType([
-        StructField("_id", StringType(), True),
-        StructField("timestamp", TimestampType(), True),
+def create_symbol_explosion_udf():
+    """Create UDF to parse JSON and explode symbols"""
+    
+    symbol_schema = ArrayType(StructType([
         StructField("symbol", StringType(), True),
+        StructField("timestamp", StringType(), True),
         StructField("open", DoubleType(), True),
         StructField("high", DoubleType(), True),
         StructField("low", DoubleType(), True),
         StructField("close", DoubleType(), True),
         StructField("volume", DoubleType(), True),
-    ])
-
-
-# ============================================================================
-# Data Extraction Helper
-# ============================================================================
-
-def extract_symbols_from_record(ohlcv_data: Dict[str, Any]) -> list:
-    """
-    Extract individual symbol data from the nested structure
+        StructField("date", StringType(), True),
+        StructField("time", StringType(), True),
+    ]))
     
-    Args:
-        ohlcv_data: The parsed OHLCV data dictionary
-        
-    Returns:
-        List of tuples (symbol_name, symbol_data_dict)
-    """
-    symbols = []
-    record_timestamp = ohlcv_data.get('timestamp', '')
-    
-    # Iterate through all keys in the data
-    for key, value in ohlcv_data.items():
-        # Skip metadata fields
-        if key in ['_id', 'timestamp']:
-            continue
+    @udf(returnType=symbol_schema)
+    def parse_and_explode_udf(json_str):
+        """Parse JSON and extract all symbols"""
+        try:
+            ohlcv_data = json.loads(json_str)
+            symbols = []
+            record_timestamp = ohlcv_data.get('timestamp', '')
             
-        # Check if this is a symbol data object (has 'Type' field)
-        if isinstance(value, dict) and 'Type' in value:
-            symbol_name = value.get('Type', 'UNKNOWN')
-            symbols.append((symbol_name, value, record_timestamp))
+            for key, value in ohlcv_data.items():
+                if key in ['_id', 'timestamp']:
+                    continue
+                    
+                if isinstance(value, dict) and 'Type' in value:
+                    # Extract with explicit type conversion
+                    symbol_dict = {
+                        'symbol': str(value.get('Type', '')),
+                        'timestamp': str(record_timestamp),
+                        'open': float(value.get('open', 0)) if value.get('open') is not None else None,
+                        'high': float(value.get('high', 0)) if value.get('high') is not None else None,
+                        'low': float(value.get('low', 0)) if value.get('low') is not None else None,
+                        'close': float(value.get('close', 0)) if value.get('close') is not None else None,
+                        'volume': float(value.get('volume', 0)) if value.get('volume') is not None else None,
+                        'date': str(value.get('Date', '')),
+                        'time': str(value.get('Time', '')),
+                    }
+                    symbols.append(symbol_dict)
+            
+            return symbols
+        except Exception as e:
+            return []
     
-    return symbols
+    return parse_and_explode_udf
 
 
 # ============================================================================
-# Streaming Query Handler
+# Streaming Query Handler - WITH SAFE LOGGING
 # ============================================================================
 
 class StreamingQueryHandler:
     """Handler for Spark Structured Streaming query"""
     
     def __init__(self, config: Config, logger: logging.Logger, 
-             data_log_file: Path, redis_manager: RedisManager,
-             influx_manager: InfluxManager, clickhouse_manager: ClickHouseManager):
-        """Initialize handler"""
+                 data_log_file: Path, redis_manager: RedisManager,
+                 influx_manager: InfluxManager, clickhouse_manager: ClickHouseManager, 
+                 indicator_engine: IndicatorEngine):
         self.config = config
         self.logger = logger
         self.data_log_file = data_log_file
         self.redis_manager = redis_manager
         self.influx_manager = influx_manager
-        self.clickhouse_manager = clickhouse_manager 
+        self.clickhouse_manager = clickhouse_manager
+        self.indicator_engine = indicator_engine 
         self.processed_count = 0
         self.batch_count = 0
         self.total_symbols_written = 0
@@ -406,7 +410,7 @@ class StreamingQueryHandler:
         self.logger.info(f"Data log file opened: {data_log_file}")
     
     def process_batch(self, batch_df, batch_id):
-        """Process each micro-batch of data"""
+        """Process each micro-batch with SAFE logging"""
         try:
             self.batch_count += 1
             batch_size = batch_df.count()
@@ -415,113 +419,174 @@ class StreamingQueryHandler:
                 return
             
             self.logger.info("-" * 80)
-            self.logger.info(f"BATCH {batch_id} | Records: {batch_size}")
+            self.logger.info(f"BATCH {batch_id} | Raw Symbol Records: {batch_size}")
             self.logger.info("-" * 80)
             
-            # Collect records
-            records = batch_df.collect()
+            raw_records = batch_df.collect()
+            
+            # Convert Spark Rows to dicts with explicit type handling
+            input_rows = []
+            for record in raw_records:
+                row_dict = {
+                    'symbol': str(record.symbol) if record.symbol else '',
+                    'timestamp': str(record.timestamp) if record.timestamp else '',
+                    'open': float(record.open) if record.open is not None else None,
+                    'high': float(record.high) if record.high is not None else None,
+                    'low': float(record.low) if record.low is not None else None,
+                    'close': float(record.close) if record.close is not None else None,
+                    'volume': float(record.volume) if record.volume is not None else None,
+                    'date': str(record.date) if record.date else '',
+                    'time': str(record.time) if record.time else '',
+                    'offset': int(record.offset) if record.offset is not None else 0,
+                    'partition': int(record.partition) if record.partition is not None else 0,
+                    'kafka_timestamp': record.kafka_timestamp if record.kafka_timestamp else datetime.now()
+                }
+                input_rows.append(row_dict)
+            
+            # DEBUG: Log first row to see what's coming from Spark
+            if input_rows:
+                first_row = input_rows[0]
+                self.logger.info(f"DEBUG - First Spark Row: symbol={first_row['symbol']}, "
+                               f"volume={first_row['volume']}, close={first_row['close']}")
+            
+            self.logger.info(f"Sending {len(input_rows)} rows to IndicatorEngine...")
+            
+            ready, enriched_rows = self.indicator_engine.process_batch(input_rows)
+            
+            if not ready:
+                self.logger.info(f"IndicatorEngine warming up... (received {len(input_rows)} rows)")
+                self.logger.info("Skipping writes to Redis/InfluxDB/ClickHouse")
+                self.logger.info("=" * 80)
+                return
+            
+            self.logger.info(f"IndicatorEngine ready! Received {len(enriched_rows)} enriched rows")
+            self.logger.info("-" * 80)
+            
+            if len(enriched_rows) == 0:
+                self.logger.warning("IndicatorEngine returned ready=True but no data")
+                self.logger.info("=" * 80)
+                return
+            
             redis_success_count = 0
             redis_fail_count = 0
             
             # Track first record for sample display
             first_record_shown = False
             
-            for record in records:
-                # Extract data
-                json_value = record.json_value
-                kafka_key = record.kafka_key
-                partition = record.partition
-                offset = record.offset
-                kafka_timestamp = record.kafka_timestamp
+            all_symbols_data = []
+            latest_per_symbol = {}
+            
+            for enriched_row in enriched_rows:
+                symbol = enriched_row['symbol']
+                timestamp = enriched_row['timestamp']
                 
-                # Parse JSON
-                try:
-                    ohlcv_data = json.loads(json_value)
-                except json.JSONDecodeError:
-                    self.logger.error(f"Failed to parse JSON: {json_value[:100]}...")
-                    continue
+                symbol_data = {
+                    'open': enriched_row['open'],
+                    'high': enriched_row['high'],
+                    'low': enriched_row['low'],
+                    'close': enriched_row['close'],
+                    'volume': enriched_row['volume'],
+                    'date': enriched_row['date'],
+                    'time': enriched_row['time'],
+                }
                 
-                # Write to data log file
+                base_fields = {'symbol', 'timestamp', 'open', 'high', 'low', 
+                            'close', 'volume', 'date', 'time', 
+                            'offset', 'partition', 'kafka_timestamp'}
+                
+                for field_name, field_value in enriched_row.items():
+                    if field_name not in base_fields:
+                        symbol_data[field_name] = field_value
+                
+                kafka_meta = {
+                    'partition': enriched_row.get('partition'),
+                    'offset': enriched_row.get('offset'),
+                    'timestamp': enriched_row.get('kafka_timestamp')
+                }
+                
                 record_dict = {
-                    'ohlcv_data': ohlcv_data,
-                    'kafka_metadata': {
-                        'key': kafka_key,
-                        'partition': partition,
-                        'offset': offset,
-                        'timestamp': str(kafka_timestamp)
-                    },
+                    'symbol': symbol,
+                    'timestamp': timestamp,
+                    'data': symbol_data,
+                    'kafka_metadata': kafka_meta,
                     'batch_id': batch_id,
                     'processed_at': datetime.now().isoformat()
                 }
                 json_line = json.dumps(record_dict, default=str)
                 self.data_log_handle.write(json_line + '\n')
                 
-                # Extract all symbols from this record
-                symbols = extract_symbols_from_record(ohlcv_data)
-                
-                # Show sample of first record
-                if not first_record_shown and symbols:
-                    self.logger.info(f"Sample Record (Offset {offset}):")
-                    self.logger.info(f"  Timestamp: {ohlcv_data.get('timestamp', 'N/A')}")
-                    self.logger.info(f"  Symbols extracted: {len(symbols)}")
-                    # Show first 3 symbols as sample
-                    for i, (symbol, data, _) in enumerate(symbols[:3]):
-                        self.logger.info(
-                            f"    [{i+1}] {symbol}: "
-                            f"Close=${data.get('close', 0):.2f} "
-                            f"Volume={data.get('volume', 0):.0f}"
-                        )
-                    if len(symbols) > 3:
-                        self.logger.info(f"    ... and {len(symbols) - 3} more symbols")
+                # SAFE LOGGING - Handle None values
+                if not first_record_shown:
+                    self.logger.info(f"Sample Enriched Record (Offset {kafka_meta['offset']}):")
+                    self.logger.info(f"  Symbol: {symbol}")
+                    self.logger.info(f"  Timestamp: {timestamp}")
+                    
+                    close_val = enriched_row.get('close')
+                    volume_val = enriched_row.get('volume')
+                    
+                    if close_val is not None:
+                        self.logger.info(f"  Close: ${close_val:.2f}")
+                    else:
+                        self.logger.info(f"  Close: None")
+                    
+                    if volume_val is not None:
+                        self.logger.info(f"  Volume: {volume_val:.0f}")
+                    else:
+                        self.logger.info(f"  Volume: None (WARNING: Volume is null!)")
+                    
+                    indicator_fields = [k for k in enriched_row.keys() if k not in base_fields]
+                    if indicator_fields:
+                        self.logger.info(f"  Indicators: {', '.join(indicator_fields[:5])}")
+                        for ind_field in indicator_fields[:3]:
+                            val = enriched_row[ind_field]
+                            if val is not None:
+                                self.logger.info(f"    {ind_field}: {val}")
                     self.logger.info("-" * 80)
                     first_record_shown = True
                 
-                # Store each symbol in Redis
-                kafka_meta = {
-                    'partition': partition,
-                    'offset': offset,
-                    'timestamp': kafka_timestamp
-                }
+                all_symbols_data.append((symbol, symbol_data, timestamp, kafka_meta))
                 
-                all_symbols_data = []
-
-                for symbol_name, symbol_data, record_timestamp in symbols:
-                    success = self.redis_manager.store_latest_record(
-                        symbol=symbol_name,
-                        data=symbol_data,
-                        record_timestamp=record_timestamp,
-                        kafka_meta=kafka_meta,
-                        batch_id=batch_id
-                    )
-
-                    all_symbols_data.append((symbol_name, symbol_data, record_timestamp, kafka_meta))
-                    
-                    if success:
-                        redis_success_count += 1
-                        self.total_symbols_written += 1
-                    else:
-                        redis_fail_count += 1
+                if symbol not in latest_per_symbol:
+                    latest_per_symbol[symbol] = (symbol_data, timestamp, kafka_meta, len(latest_per_symbol))
+                else:
+                    existing_ts = latest_per_symbol[symbol][1]
+                    if timestamp > existing_ts:
+                        latest_per_symbol[symbol] = (symbol_data, timestamp, kafka_meta, len(latest_per_symbol))
+                    elif timestamp == existing_ts:
+                        latest_per_symbol[symbol] = (symbol_data, timestamp, kafka_meta, len(latest_per_symbol))
                 
                 self.processed_count += 1
             
-            # Flush data log
             self.data_log_handle.flush()
-
-            # Batch write to InfluxDB
+            
+            for symbol, (symbol_data, timestamp, kafka_meta, _) in latest_per_symbol.items():
+                success = self.redis_manager.store_latest_record(
+                    symbol=symbol,
+                    data=symbol_data,
+                    record_timestamp=timestamp,
+                    kafka_meta=kafka_meta,
+                    batch_id=batch_id
+                )
+                
+                if success:
+                    redis_success_count += 1
+                    self.total_symbols_written += 1
+                else:
+                    redis_fail_count += 1
+            
             influx_result = self.influx_manager.write_batch(all_symbols_data, batch_id)
 
             # Batch write to ClickHouse
             clickhouse_result = self.clickhouse_manager.write_batch(all_symbols_data, batch_id)
-
-            # Batch summary
+            
             self.logger.info(
                 f"Batch {batch_id} Complete | "
-                f"Kafka Records: {batch_size} | "
-                f"Redis Symbols: {redis_success_count} | "
-                f"Redis Failed: {redis_fail_count} | "
+                f"Enriched Rows: {len(enriched_rows)} | "
+                f"Unique Symbols for Redis: {len(latest_per_symbol)} | "
+                f"Redis: {redis_success_count}/{redis_fail_count} | "
                 f"InfluxDB: {influx_result['success']}/{influx_result['failed']} | "
                 f"ClickHouse: {clickhouse_result['success']}/{clickhouse_result['failed']} | "
-                f"Total: {self.processed_count} records, {self.total_symbols_written} symbols"
+                f"Total Processed: {self.processed_count}"
             )
             self.logger.info("=" * 80)
             
@@ -532,21 +597,15 @@ class StreamingQueryHandler:
         """Close data log file"""
         if self.data_log_handle:
             self.data_log_handle.close()
-            self.logger.info(
-                f"Data log closed: {self.processed_count} records, "
-                f"{self.total_symbols_written} symbols, {self.batch_count} batches"
-            )
+            self.logger.info(f"Data log closed: {self.processed_count} symbols, {self.batch_count} batches")
 
 
-# ============================================================================
-# Main Consumer Logic
-# ============================================================================
+# ... [Keep SparkKafkaConsumer and main exactly as is] ...
 
 class SparkKafkaConsumer:
-    """Main class for Spark Kafka streaming consumer with Redis"""
+    """Main class for Spark Kafka streaming consumer with indicator enrichment"""
     
     def __init__(self, config: Config):
-        """Initialize consumer"""
         self.config = config
         self.logger, self.data_log_file, self.redis_logger, self.influx_logger, self.clickhouse_logger = setup_logging(config)
         self.spark: Optional[SparkSession] = None
@@ -554,11 +613,11 @@ class SparkKafkaConsumer:
         self.influx_manager: Optional[InfluxManager] = None
         self.clickhouse_manager: Optional[ClickHouseManager] = None
         self.handler: Optional[StreamingQueryHandler] = None
+        self.indicator_engine: Optional[IndicatorEngine] = None
         self.query = None
     
     def run(self):
-        """Main execution"""
-        self.logger.info("Starting OHLCV Streaming: Kafka → Spark → Redis")
+        self.logger.info("Starting OHLCV Streaming: Kafka → Spark → Indicators → Redis/InfluxDB/ClickHouse")
         self.logger.info(f"Topic: {self.config.KAFKA_TOPIC}")
         self.logger.info(f"Starting offsets: {self.config.KAFKA_STARTING_OFFSETS}")
         self.logger.info(f"Trigger interval: {self.config.TRIGGER_INTERVAL}")
@@ -576,19 +635,18 @@ class SparkKafkaConsumer:
 
             # Initialize InfluxDB
             self.influx_manager = InfluxManager(self.config, self.logger, self.influx_logger)
-
-            # Initialize ClickHouse
             self.clickhouse_manager = ClickHouseManager(self.config, self.logger, self.clickhouse_logger)
-
+            self.indicator_engine = IndicatorEngine()
+            self.logger.info("Indicator Engine initialized")
             
-            # Create query handler
             self.handler = StreamingQueryHandler(
                 self.config, 
                 self.logger, 
                 self.data_log_file,
                 self.redis_manager,
                 self.influx_manager,
-                self.clickhouse_manager
+                self.clickhouse_manager,
+                self.indicator_engine
             )
             
             self.logger.info("-" * 80)
@@ -611,7 +669,6 @@ class SparkKafkaConsumer:
             parsed_df = kafka_df.selectExpr(
                 "CAST(key AS STRING) as kafka_key",
                 "CAST(value AS STRING) as json_value",
-                "topic",
                 "partition",
                 "offset",
                 "timestamp as kafka_timestamp"
@@ -619,11 +676,29 @@ class SparkKafkaConsumer:
             
             self.logger.info("Data parsing configured")
             self.logger.info("-" * 80)
+            self.logger.info("Setting up symbol explosion and indicator enrichment...")
+            
+            parse_and_explode = create_symbol_explosion_udf()
+            
+            symbols_df = parsed_df.select(
+                explode(parse_and_explode(col("json_value"))).alias("symbol_data"),
+                col("offset"),
+                col("partition"),
+                col("kafka_timestamp")
+            ).select(
+                "symbol_data.*",
+                "offset",
+                "partition",
+                "kafka_timestamp"
+            )
+            
+            self.logger.info("Symbol explosion configured")
+            
+            self.logger.info("-" * 80)
             self.logger.info("Starting streaming query...")
             self.logger.info("-" * 80)
             
-            # Write stream using foreachBatch
-            self.query = parsed_df \
+            self.query = symbols_df \
                 .writeStream \
                 .foreachBatch(self.handler.process_batch) \
                 .trigger(processingTime=self.config.TRIGGER_INTERVAL) \
@@ -631,6 +706,7 @@ class SparkKafkaConsumer:
                 .start()
             
             self.logger.info("Streaming query started successfully")
+            self.logger.info("Processing: Kafka → Parse → Explode → IndicatorEngine → Store")
             self.logger.info("Waiting for data... (Press Ctrl+C to stop)")
             self.logger.info("=" * 80)
             
@@ -652,17 +728,14 @@ class SparkKafkaConsumer:
         self.logger.info("SHUTTING DOWN")
         self.logger.info("=" * 80)
         
-        # Stop query
         if self.query and self.query.isActive:
             self.logger.info("Stopping streaming query...")
             self.query.stop()
             self.logger.info("Streaming query stopped")
         
-        # Close handler
         if self.handler:
             self.handler.close()
         
-        # Get Redis statistics
         if self.redis_manager:
             redis_stats = self.redis_manager.get_statistics()
             self.logger.info("-" * 80)
@@ -671,16 +744,9 @@ class SparkKafkaConsumer:
             self.logger.info(f"Total Writes: {redis_stats['total_writes']}")
             self.logger.info(f"Total Errors: {redis_stats['total_errors']}")
             self.logger.info(f"Unique Symbols: {redis_stats['unique_symbols']}")
-            if redis_stats['symbols']:
-                symbols_str = ', '.join(redis_stats['symbols'][:10])
-                if len(redis_stats['symbols']) > 10:
-                    symbols_str += f" ... (+{len(redis_stats['symbols']) - 10} more)"
-                self.logger.info(f"Symbols: {symbols_str}")
             self.logger.info("-" * 80)
-            
             self.redis_manager.close()
 
-        # Get influx statistics
         if self.influx_manager:
             influx_stats = self.influx_manager.get_statistics()
             self.logger.info("-" * 80)
@@ -692,7 +758,6 @@ class SparkKafkaConsumer:
             self.logger.info("-" * 80)
             self.influx_manager.close()
 
-        # Get clickhouse statistics
         if self.clickhouse_manager:
             clickhouse_stats = self.clickhouse_manager.get_statistics()
             self.logger.info("-" * 80)
@@ -704,18 +769,16 @@ class SparkKafkaConsumer:
             self.logger.info("-" * 80)
             self.clickhouse_manager.close()
         
-        # Stop Spark
         if self.spark:
             self.logger.info("Stopping Spark session...")
             self.spark.stop()
             self.logger.info("Spark session stopped")
         
-        # Print summary
         self.logger.info("=" * 80)
         self.logger.info("EXECUTION SUMMARY")
         self.logger.info("=" * 80)
         if self.handler:
-            self.logger.info(f"Kafka Records Processed: {self.handler.processed_count}")
+            self.logger.info(f"Enriched Symbols Processed: {self.handler.processed_count}")
             self.logger.info(f"Symbols Written to Redis: {self.handler.total_symbols_written}")
             self.logger.info(f"Batches Processed: {self.handler.batch_count}")
         self.logger.info(f"Data Log: {self.data_log_file}")
@@ -723,12 +786,7 @@ class SparkKafkaConsumer:
         self.logger.info("Cleanup completed")
 
 
-# ============================================================================
-# Entry Point
-# ============================================================================
-
 def main():
-    """Main entry point"""
     config = Config()
     consumer = SparkKafkaConsumer(config)
     consumer.run()
