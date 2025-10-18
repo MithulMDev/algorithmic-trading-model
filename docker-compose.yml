@@ -119,12 +119,12 @@ services:
       PREFETCH_ALL_DATA: "true"
       
       # Logging Configuration
-      LOG_DIR: "/app/logs"
+      LOG_DIR: "/app/logs/kafka"
       LOG_LEVEL: "INFO"
     networks:
       - kafka-network
     volumes:
-      - ./logs:/app/logs
+      - ./logs/kafka:/app/logs
       - ./kafka-producer/kafka_producer.py:/app/kafka_producer.py
     extra_hosts:
       - "host.docker.internal:host-gateway"
