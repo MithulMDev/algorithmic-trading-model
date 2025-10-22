@@ -138,6 +138,35 @@ class IndicatorEngine:
         
         return rows
     
+    def _update_enriched_data_in_redis(self, symbol: str, enriched_rows: List[Dict], start_idx: int):
+        """
+        Update the stored Redis data with enriched indicator values
+        
+        Args:
+            symbol: Symbol name
+            enriched_rows: List of enriched row dictionaries to update in Redis
+            start_idx: Starting index in the Redis list to update
+        """
+        redis_key = self._get_redis_key(symbol)
+        
+        # Use pipeline for atomic updates
+        pipe = self.redis_client.pipeline()
+        
+        for i, enriched_row in enumerate(enriched_rows):
+            # Calculate the Redis list index
+            redis_index = start_idx + i
+            
+            # Convert enriched row to JSON
+            row_json = json.dumps(enriched_row, cls=DateTimeEncoder)
+            
+            # Update the specific index in the Redis list
+            pipe.lset(redis_key, redis_index, row_json)
+        
+        # Execute all updates atomically
+        pipe.execute()
+        
+        self.logger.info(f"  {symbol}: Updated {len(enriched_rows)} rows with enriched data in Redis")
+    
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate all technical indicators on a DataFrame using vectorized operations
@@ -365,6 +394,7 @@ class IndicatorEngine:
             # ============================================================
             # Extract and format rows to return
             # ============================================================
+            symbol_enriched_rows = []  # Track enriched rows for this symbol
             for idx in range(start_idx, len(df_enriched)):
                 enriched_row = df_enriched.iloc[idx]
                 original_row = full_history[idx]
@@ -419,7 +449,14 @@ class IndicatorEngine:
                         if np.isnan(value) or np.isinf(value):
                             output_row[key] = None
 
+                symbol_enriched_rows.append(output_row)
                 enriched_rows.append(output_row)
+            
+            # ============================================================
+            # Update Redis with enriched data for this symbol
+            # ============================================================
+            if symbol_enriched_rows:
+                self._update_enriched_data_in_redis(symbol, symbol_enriched_rows, start_idx)
         
         self.logger.info("=" * 80)
         self.logger.info(f"RETURNING {len(enriched_rows)} ENRICHED ROWS")

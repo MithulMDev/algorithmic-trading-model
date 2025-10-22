@@ -303,7 +303,7 @@ services:
       --conf spark.streaming.stopGracefullyOnShutdown=true
       /app/spark_consumer.py
     healthcheck:
-      test: ["/app/healthcheck.sh", "spark-consumer"]
+      test: ["CMD", "/app/healthcheck.sh", "spark-consumer"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -371,7 +371,7 @@ services:
       - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
     command: sh -c "sleep 30 && python /app/signal_processor.py"    # this sleeps for 30 seconds and starts after 30 sec after th spark consumer starts
     healthcheck:
-      test: ["/app/healthcheck.sh", "signal-processor"]
+      test: ["CMD", "/app/healthcheck.sh", "signal-processor"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -440,7 +440,7 @@ services:
       - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
     command: sh -c "sleep 120 && python /app/portfolio_manager.py"   # this sleeps for 2 mins and then starts
     healthcheck:
-      test: ["/app/healthcheck.sh", "portfolio-manager"]
+      test: ["CMD", "/app/healthcheck.sh", "portfolio-manager"]
       interval: 30s
       timeout: 10s
       retries: 3

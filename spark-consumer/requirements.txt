@@ -11,29 +11,22 @@ redis==5.0.1
 influxdb-client==1.38.0
 clickhouse-connect==0.6.23
 
-# Technical indicators (if using ta-lib or other libraries)
-pandas-ta==0.3.14b
+# Technical indicators - FIXED VERSION
+# pandas-ta has issues, using ta library instead which is more stable
 ta==0.11.0
 
 # HTTP and API
 requests==2.31.0
 
-# Logging and monitoring
+# Logging
 python-json-logger==2.0.7
 
-# Configuration management
+# Configuration
 python-dotenv==1.0.0
 
 # Date/time handling
 python-dateutil==2.8.2
 pytz==2023.3
 
-# Performance and optimization
+# Performance
 ujson==5.9.0
-
-# Testing (optional)
-pytest==7.4.3
-pytest-cov==4.1.0
-
-# Type checking (optional)
-mypy==1.7.1

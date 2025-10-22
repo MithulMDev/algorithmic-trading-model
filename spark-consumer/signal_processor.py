@@ -169,6 +169,10 @@ class SignalCalculator:
         
         try:
             rsi_current = df['rsi_14'].iloc[-1]
+
+            # validating 
+            if pd.isna(rsi_current) or np.isnan(rsi_current):
+                return 0.0
             rsi_5s_ago = df['rsi_14'].iloc[-5] if len(df) >= 5 else rsi_current
             rsi_10s_ago = df['rsi_14'].iloc[-10] if len(df) >= 10 else rsi_current
             
@@ -543,8 +547,9 @@ class SignalProcessor:
             self.logger.warning("Invalid Bollinger bands")
         
         # Check RSI
-        if not (0 <= df['rsi_14'].iloc[-1] <= 100):
-            self.logger.warning(f"Invalid RSI: {df['rsi_14'].iloc[-1]}")
+        rsi_value = df['rsi_14'].iloc[-1]
+        if pd.isna(rsi_value) or np.isnan(rsi_value) or not (0 <= rsi_value <= 100):
+            self.logger.warning(f"Invalid RSI: {rsi_value}")
         
         return True
     
@@ -574,6 +579,12 @@ class SignalProcessor:
                 'signal_5': self.signal_calc.calculate_signal_5_volume(df),
                 'signal_6': self.signal_calc.calculate_signal_6_trend_quality(df),
             }
+            
+            # checks if there are any null values
+            invalid_signals = [k for k, v in signals.items() if pd.isna(v) or np.isnan(v) or np.isinf(v)]
+            if invalid_signals:
+                self.logger.warning(f"{symbol}: Invalid signals detected: {invalid_signals} - skipping")
+                return None
             
             # Detect regime
             regime, regime_confidence = self.regime_detector.detect_regime(df)
