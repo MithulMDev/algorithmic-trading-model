@@ -44,7 +44,7 @@ class IndicatorEngine:
         self.redis_port = redis_port
         self.redis_db = redis_db
         self.warmup_rows = warmup_rows
-        self.min_return_index = 25  # 0-indexed, so 26th row
+        self.min_return_index = 34  # 0-indexed, so 26th row
         
         # Connect to Redis
         self.redis_client = redis.Redis(
@@ -82,6 +82,7 @@ class IndicatorEngine:
     def _store_rows_in_redis(self, symbol: str, rows: List[Dict]) -> int:
         """
         Store rows in Redis for a symbol, maintaining sliding window
+        Uses Redis pipeline for atomic operations to prevent race conditions
         
         Args:
             symbol: Symbol name
@@ -92,16 +93,26 @@ class IndicatorEngine:
         """
         redis_key = self._get_redis_key(symbol)
         
-        # Append each row as JSON with custom encoder for datetime
+        # Use pipeline for atomic operations
+        pipe = self.redis_client.pipeline()
+        
+        # Append each row using the PIPELINE (not redis_client directly)
         for row in rows:
+            row['_enriched'] = False  # Mark as raw data
             row_json = json.dumps(row, cls=DateTimeEncoder)
-            self.redis_client.rpush(redis_key, row_json)
+            pipe.rpush(redis_key, row_json)  # ← Note: pipe.rpush, not self.redis_client.rpush
         
-        # Trim to keep only last warmup_rows (sliding window)
-        self.redis_client.ltrim(redis_key, -self.warmup_rows, -1)
-        
+        # Add trim and count operations to the pipeline
+        pipe.ltrim(redis_key, -self.warmup_rows, -1)
+
         # Get current count
-        count = self.redis_client.llen(redis_key)
+        pipe.llen(redis_key)
+        
+        # Execute all commands atomically
+        results = pipe.execute()
+        
+        # Return count from llen (last result)
+        count = results[-1]
         return count
     
     def _get_history_from_redis(self, symbol: str) -> List[Dict]:
@@ -226,14 +237,14 @@ class IndicatorEngine:
         Process a batch of rows from Spark
         
         Workflow:
-        1. During warm-up (< 30 rows per symbol):
+        1. During warm-up (< 60 rows per symbol):
            - Store rows in Redis
            - Return (False, [])
         
-        2. First ready return (exactly at 30 rows):
-           - Return rows 26-30 for each symbol (5 rows per symbol)
+        2. First ready return (exactly at 60 rows):
+           - Return rows 35-60 for each symbol (5 rows per symbol)
         
-        3. Subsequent returns (> 30 rows):
+        3. Subsequent returns (> 60 rows):
            - Return enriched versions of all new input rows
         
         Args:
@@ -335,7 +346,7 @@ class IndicatorEngine:
             is_first_ready = symbol not in self.warmed_up_symbols
             
             if is_first_ready:
-                # First time ready: return rows from index 25 onwards (rows 26-30)
+                # First time ready: return rows from index 34 onwards (rows 35-60)
                 start_idx = self.min_return_index
                 self.warmed_up_symbols.add(symbol)
                 num_returning = len(df_enriched) - start_idx
@@ -350,9 +361,6 @@ class IndicatorEngine:
                 self.logger.info(
                     f"  {symbol}: Returning {num_new_rows} new row(s)"
                 )
-                        
-            if idx < 26:  # MACD needs 26 periods minimum
-                continue  # Skip rows that don't have all indicators
             
             # ============================================================
             # Extract and format rows to return
@@ -400,6 +408,9 @@ class IndicatorEngine:
                     'rsi_14': enriched_row.get('rsi_14'),
                     'price_change': enriched_row.get('price_change'),
                     'price_change_pct': enriched_row.get('price_change_pct'),
+
+                    # Enrichment marker
+                    '_enriched': True,
                 }
                 
                 # Convert NaN and Inf to None for JSON compatibility
@@ -407,7 +418,7 @@ class IndicatorEngine:
                     if isinstance(value, (float, np.floating)):
                         if np.isnan(value) or np.isinf(value):
                             output_row[key] = None
-                
+
                 enriched_rows.append(output_row)
         
         self.logger.info("=" * 80)

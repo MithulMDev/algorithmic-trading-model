@@ -659,16 +659,20 @@ class HFTSignalGenerator:
     def _connect_redis(self):
         """Connect to Redis"""
         try:
-            self.redis_client = redis.Redis(
+            # Create connection pool for thread-safe operations
+            pool = redis.ConnectionPool(
                 host=self.config.REDIS_HOST,
                 port=self.config.REDIS_PORT,
                 db=self.config.REDIS_DB,
                 decode_responses=False,
+                max_connections=10,  # Allow up to 10 concurrent connections
                 socket_timeout=5,
                 socket_connect_timeout=5
             )
+            
+            self.redis_client = redis.Redis(connection_pool=pool)
             self.redis_client.ping()
-            self.logger.info("Redis connected successfully")
+            self.logger.info("Redis connected successfully with connection pool")
         except redis.ConnectionError as e:
             self.logger.error(f"Redis connection failed: {e}")
             raise
@@ -687,7 +691,7 @@ class HFTSignalGenerator:
         """Fetch historical data for a symbol"""
         try:
             redis_key = f"indicator:history:{symbol}"
-            rows_bytes = self.redis_client.lrange(redis_key, -60, -1)
+            rows_bytes = self.redis_client.lrange(redis_key, 0, -1)
             
             if not rows_bytes:
                 return None
@@ -697,7 +701,24 @@ class HFTSignalGenerator:
                 row = json.loads(row_bytes.decode('utf-8'))
                 rows.append(row)
             
+            # VALIDATE DATA IS ENRICHED
+            if rows:
+                # Check first and last row to ensure they're enriched
+                if not rows[0].get('_enriched', False):
+                    self.logger.warning(f"{symbol}: Data not enriched yet (still in warm-up phase)")
+                    return None
+                
+                # Verify we have indicator fields
+                required_indicator_fields = ['sma_10', 'macd_line', 'rsi_14', 'atr_14']
+                missing_fields = [f for f in required_indicator_fields if f not in rows[0]]
+                if missing_fields:
+                    self.logger.warning(
+                        f"{symbol}: Missing indicator fields: {missing_fields}"
+                    )
+                    return None
+            
             return rows
+        
         except Exception as e:
             self.logger.error(f"{symbol}: Error fetching history - {e}")
             return None

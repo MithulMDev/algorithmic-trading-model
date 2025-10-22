@@ -707,8 +707,11 @@ class PortfolioManager:
             return []
     
     def load_signals(self, symbols: List[str]) -> List[Signal]:
-        """Load signals from Redis"""
+        """Load signals from Redis with freshness validation"""
         signals = []
+        max_age_seconds = 60  # Don't use signals older than 1 minute
+        current_time = datetime.now()
+        
         for symbol in symbols:
             try:
                 redis_key = f"signals:latest:{symbol}"
@@ -718,12 +721,36 @@ class PortfolioManager:
                     continue
                 
                 decoded_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in data.items()}
+                
+                # ✅ CHECK SIGNAL FRESHNESS
+                signal_timestamp = decoded_data.get('last_updated', '')
+                if signal_timestamp:
+                    try:
+                        signal_dt = datetime.fromisoformat(signal_timestamp)
+                        age_seconds = (current_time - signal_dt).total_seconds()
+                        
+                        if age_seconds > max_age_seconds:
+                            self.logger.warning(
+                                f"{symbol}: Signal is stale ({age_seconds:.0f}s old), skipping"
+                            )
+                            continue
+                        
+                        self.logger.debug(f"{symbol}: Signal age {age_seconds:.1f}s (fresh)")
+                        
+                    except ValueError as e:
+                        self.logger.error(f"{symbol}: Invalid timestamp format: {signal_timestamp}")
+                        continue
+                else:
+                    self.logger.warning(f"{symbol}: No timestamp in signal data, skipping")
+                    continue
+                
                 signal = Signal.from_redis_hash(symbol, decoded_data)
                 signals.append(signal)
                 
             except Exception as e:
                 self.logger.error(f"{symbol}: Error loading signal - {e}")
         
+        self.logger.info(f"Loaded {len(signals)} fresh signals out of {len(symbols)} discovered")
         return signals
     
     def save_trade_orders(self, orders: List[TradeOrder]):
