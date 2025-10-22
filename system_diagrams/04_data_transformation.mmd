@@ -1,0 +1,57 @@
+graph LR
+    subgraph Stage1["Stage 1: Raw Data"]
+        Raw["Raw OHLCV<br/>symbol, timestamp<br/>open, high, low<br/>close, volume"]
+    end
+
+    subgraph Stage2["Stage 2: Kafka Stream"]
+        Streamed["Kafka Message<br/>+ partition<br/>+ offset<br/>+ kafka_timestamp"]
+    end
+
+    subgraph Stage3["Stage 3: Symbol Explosion"]
+        Exploded["Per-Symbol Rows<br/>Each symbol separate<br/>+ date, time<br/>+ offset metadata"]
+    end
+
+    subgraph Stage4["Stage 4: Indicator Engine"]
+        Warmup["Warm-up Phase<br/>Buffer 60 rows<br/>_enriched: false"]
+        Enriched["Enriched Data<br/>+ 14 Indicators<br/>SMA, EMA, MACD<br/>RSI, BB, ATR, etc<br/>_enriched: true"]
+    end
+
+    subgraph Stage5["Stage 5: Multiple Storage"]
+        RedisLatest["Redis DB 0<br/>Latest tick"]
+        RedisHistory["Redis DB 1<br/>60-row history<br/>with indicators"]
+        TimeSeriesDB["InfluxDB<br/>Complete history<br/>time-series format"]
+        AnalyticsDB["ClickHouse<br/>Complete history<br/>columnar format"]
+    end
+
+    subgraph Stage6["Stage 6: Signal Generation"]
+        Signals["6 Trading Signals<br/>momentum, MACD<br/>RSI, Bollinger<br/>volume, volatility<br/>+ Regime classification<br/>+ Confidence score"]
+    end
+
+    subgraph Stage7["Stage 7: Portfolio Decisions"]
+        Orders["Trade Orders<br/>BUY/SELL<br/>symbol, shares, price<br/>reason, priority<br/>target weight"]
+    end
+
+    Raw --> Streamed
+    Streamed --> Exploded
+    Exploded --> Warmup
+    Warmup -->|After 60 rows| Enriched
+    
+    Enriched --> RedisLatest
+    Enriched --> RedisHistory
+    Enriched --> TimeSeriesDB
+    Enriched --> AnalyticsDB
+    
+    RedisHistory -->|Every 2s| Signals
+    Signals -->|Every 5 min| Orders
+
+    style Raw fill:#e3f2fd
+    style Streamed fill:#fff3e0
+    style Exploded fill:#f3e5f5
+    style Warmup fill:#fff9c4
+    style Enriched fill:#c8e6c9
+    style RedisLatest fill:#ffccbc
+    style RedisHistory fill:#ffccbc
+    style TimeSeriesDB fill:#b2dfdb
+    style AnalyticsDB fill:#b2dfdb
+    style Signals fill:#d1c4e9
+    style Orders fill:#f8bbd0

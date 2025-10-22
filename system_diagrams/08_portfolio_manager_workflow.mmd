@@ -1,0 +1,84 @@
+graph TB
+    Start([portfolio_manager.py<br/>Every 5 minutes])
+    
+    LoadPortfolio[HGETALL portfolio:state<br/>cash, positions, history]
+    
+    DiscoverSignals[KEYS signals:latest:*<br/>Discover all signals]
+    
+    subgraph LoadSignals["Load All Signals"]
+        FetchEach[HGETALL signals:latest:SYMBOL<br/>For each discovered symbol]
+        ParseSignal[Parse Signal:<br/>score, regime, confidence<br/>close, ATR, volume]
+    end
+    
+    UpdateHistory[Update Signal History<br/>Track 4 recent signals per symbol]
+    UpdatePrices[Update Position Prices<br/>From current signals]
+    
+    subgraph TargetCalculation["Calculate Target Weights"]
+        ClassifySignals[Classify Signals:<br/>STRONG_BUY: ≥1.5<br/>WEAK_BUY: ≥1.1<br/>HOLD: ≥0.9<br/>WEAK_SELL: ≥0.7<br/>STRONG_SELL: <0.7]
+        
+        CalcConfidence[Calculate Confidence<br/>Signal consistency over 4 periods]
+        
+        BaseAllocation[Base Allocation: 15%<br/>Adjusted by confidence & regime]
+        
+        NormalizeWeights[Normalize to 100%<br/>Respect min/max limits<br/>Cash reserve: 10-40%]
+    end
+    
+    subgraph OrderGeneration["Generate Trade Orders"]
+        CompareWeights[Compare Current vs Target<br/>For all symbols]
+        
+        DecisionLogic{Weight<br/>difference?}
+        
+        GenerateBuy[Generate BUY Order<br/>Increase position]
+        GenerateSell[Generate SELL Order<br/>Decrease/Close position]
+        NoAction[No Action<br/>Within threshold]
+        
+        PrioritizeOrders[Prioritize Orders:<br/>SELL first<br/>Then BUY by signal strength]
+    end
+    
+    ValidateOrders{Validate:<br/>Cash available?<br/>Daily limit?}
+    
+    DropOrders[Drop excess orders<br/>Insufficient resources]
+    
+    SaveOrders[HSET trade:orders:TIMESTAMP<br/>Store valid orders]
+    SaveState[HSET portfolio:state<br/>Update state for next cycle]
+    
+    LogResults[Log:<br/>Portfolio state<br/>Signals summary<br/>Order details]
+    
+    Wait[Sleep 5 minutes]
+    
+    Start --> LoadPortfolio
+    LoadPortfolio --> DiscoverSignals
+    DiscoverSignals --> FetchEach
+    FetchEach --> ParseSignal
+    ParseSignal --> UpdateHistory
+    UpdateHistory --> UpdatePrices
+    UpdatePrices --> ClassifySignals
+    ClassifySignals --> CalcConfidence
+    CalcConfidence --> BaseAllocation
+    BaseAllocation --> NormalizeWeights
+    NormalizeWeights --> CompareWeights
+    CompareWeights --> DecisionLogic
+    DecisionLogic -->|Increase| GenerateBuy
+    DecisionLogic -->|Decrease| GenerateSell
+    DecisionLogic -->|Stable| NoAction
+    GenerateBuy --> PrioritizeOrders
+    GenerateSell --> PrioritizeOrders
+    NoAction --> PrioritizeOrders
+    PrioritizeOrders --> ValidateOrders
+    ValidateOrders -->|Valid| SaveOrders
+    ValidateOrders -->|Invalid| DropOrders
+    DropOrders --> SaveOrders
+    SaveOrders --> SaveState
+    SaveState --> LogResults
+    LogResults --> Wait
+    Wait --> Start
+
+    style Start fill:#e1f5ff
+    style LoadSignals fill:#f3e5f5
+    style TargetCalculation fill:#e8f5e9
+    style OrderGeneration fill:#fff3e0
+    style ValidateOrders fill:#fff9c4
+    style DecisionLogic fill:#fff9c4
+    style SaveOrders fill:#ffccbc
+    style SaveState fill:#ffccbc
+    style DropOrders fill:#ffebee

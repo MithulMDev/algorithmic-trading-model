@@ -1,0 +1,58 @@
+graph TB
+    subgraph MainStream["Main Stream (Continuous)"]
+        direction TB
+        Kafka[Kafka Stream] -->|Continuous| SparkConsumer[spark_consumer.py]
+        SparkConsumer -->|Batch Processing| IndicatorEngine[indicator_engine.py]
+        IndicatorEngine -->|Write| RedisHistory[(Redis DB 1<br/>indicator:history:*)]
+        SparkConsumer -->|Write| Storage[(InfluxDB<br/>ClickHouse<br/>Redis DB 0)]
+    end
+
+    subgraph ParallelLoop1["Parallel Process 1: Signal Generation"]
+        direction TB
+        Timer1[Timer: Every 2 seconds]
+        SignalProcessor[signal_processor.py]
+        SP_Discover[Discover Symbols<br/>KEYS indicator:history:*]
+        SP_Read[Read History<br/>LRANGE 0 -1]
+        SP_Process[Calculate 6 Signals<br/>Parallel Workers: 2]
+        SP_Write[Write Signals<br/>signals:latest:*]
+        
+        Timer1 -.->|Trigger| SP_Discover
+        SP_Discover --> SP_Read
+        SP_Read --> SP_Process
+        SP_Process --> SP_Write
+        SP_Write -.->|Wait| Timer1
+    end
+
+    subgraph ParallelLoop2["Parallel Process 2: Portfolio Management"]
+        direction TB
+        Timer2[Timer: Every 5 minutes]
+        PortfolioManager[portfolio_manager.py]
+        PM_Load[Load Portfolio State<br/>HGETALL portfolio:state]
+        PM_Discover[Discover Signals<br/>KEYS signals:latest:*]
+        PM_Read[Read All Signals<br/>HGETALL for each]
+        PM_Calculate[Calculate Targets<br/>& Generate Orders]
+        PM_Write[Write State & Orders<br/>portfolio:state<br/>trade:orders:*]
+        
+        Timer2 -.->|Trigger| PM_Load
+        PM_Load --> PM_Discover
+        PM_Discover --> PM_Read
+        PM_Read --> PM_Calculate
+        PM_Calculate --> PM_Write
+        PM_Write -.->|Wait| Timer2
+    end
+
+    RedisHistory -.->|Read| SP_Read
+    SP_Write -.->|Write| RedisSignals[(Redis DB 1<br/>signals:latest:*)]
+    RedisSignals -.->|Read| PM_Read
+    PM_Write -.->|Write| RedisPortfolio[(Redis DB 1<br/>portfolio:state<br/>trade:orders:*)]
+
+    style MainStream fill:#e3f2fd
+    style ParallelLoop1 fill:#f3e5f5
+    style ParallelLoop2 fill:#fff3e0
+    style RedisHistory fill:#ffe6e6
+    style RedisSignals fill:#ffe6e6
+    style RedisPortfolio fill:#ffe6e6
+    style Timer1 fill:#ffccbc
+    style Timer2 fill:#ffccbc
+    style SignalProcessor fill:#ce93d8
+    style PortfolioManager fill:#ffcc80

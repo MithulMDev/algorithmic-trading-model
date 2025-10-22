@@ -1,0 +1,49 @@
+graph TB
+    Start([indicator_engine.py<br/>process_batch])
+    
+    GroupBySymbol[Group Rows by Symbol]
+    
+    subgraph ForEachSymbol["For Each Symbol"]
+        direction TB
+        StoreRows[Store Rows in Redis<br/>RPUSH indicator:history:SYMBOL]
+        Trim[Trim to 60 rows<br/>LTRIM -60, -1]
+        CheckCount{Count >= 60<br/>for ALL symbols?}
+    end
+    
+    WarmupReturn([Return: False, []]<br/>Consumer skips batch)
+    
+    subgraph CalculateIndicators["All Symbols Ready"]
+        direction TB
+        GetHistory[LRANGE 0 -1<br/>Get full 60-row history]
+        ConvertDF[Convert to DataFrame]
+        CalcIndicators[Calculate 14 Indicators:<br/>SMA-5, SMA-10<br/>EMA-7, EMA-11<br/>MACD Line, MACD Signal<br/>ATR-14, Momentum<br/>BB Upper, BB Lower<br/>VMA-10, Volume Ratio<br/>RSI-14, Price Change]
+        
+        FirstReady{First time<br/>ready?}
+        ReturnRows35to60[Return rows 35-60<br/>26 enriched rows]
+        ReturnNewRows[Return new rows only<br/>from this batch]
+        
+        GetHistory --> ConvertDF
+        ConvertDF --> CalcIndicators
+        CalcIndicators --> FirstReady
+        FirstReady -->|Yes| ReturnRows35to60
+        FirstReady -->|No| ReturnNewRows
+    end
+    
+    EnrichedReturn([Return: True, enriched_rows]<br/>Consumer writes to storage)
+    
+    Start --> GroupBySymbol
+    GroupBySymbol --> StoreRows
+    StoreRows --> Trim
+    Trim --> CheckCount
+    CheckCount -->|No| WarmupReturn
+    CheckCount -->|Yes| GetHistory
+    ReturnRows35to60 --> EnrichedReturn
+    ReturnNewRows --> EnrichedReturn
+
+    style Start fill:#e1f5ff
+    style WarmupReturn fill:#ffccbc
+    style EnrichedReturn fill:#c8e6c9
+    style CheckCount fill:#fff9c4
+    style FirstReady fill:#fff9c4
+    style ForEachSymbol fill:#f3e5f5
+    style CalculateIndicators fill:#e8f5e9

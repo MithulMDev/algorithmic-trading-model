@@ -1,0 +1,59 @@
+graph TB
+    subgraph External["External Data Sources"]
+        MongoDB[(MongoDB<br/>Historical OHLCV)]
+    end
+
+    subgraph Streaming["Streaming Layer"]
+        KafkaProducer[Kafka Producer<br/>Reads from MongoDB]
+        Kafka[Apache Kafka<br/>Topic: ohlcv-stream]
+    end
+
+    subgraph MainPipeline["Main Processing Pipeline"]
+        Consumer[spark_consumer.py<br/>Spark Streaming Consumer]
+        IndicatorEngine[indicator_engine.py<br/>Technical Indicators<br/>60-row warmup]
+    end
+
+    subgraph ParallelProcessors["Parallel Independent Processors"]
+        SignalProcessor[signal_processor.py<br/>Trading Signals<br/>Runs every 2s]
+        PortfolioManager[portfolio_manager.py<br/>Portfolio Management<br/>Runs every 5 min]
+    end
+
+    subgraph Storage["Data Storage Layer"]
+        Redis[(Redis<br/>DB 0: Latest OHLCV<br/>DB 1: Indicators + Signals)]
+        InfluxDB[(InfluxDB<br/>Time-Series Storage)]
+        ClickHouse[(ClickHouse<br/>Analytics Storage)]
+    end
+
+    %% Main Flow
+    MongoDB -->|Read OHLCV| KafkaProducer
+    KafkaProducer -->|Stream| Kafka
+    Kafka -->|Consume| Consumer
+    Consumer -->|Raw OHLCV| IndicatorEngine
+    IndicatorEngine -->|Enriched Data<br/>with Indicators| Consumer
+    
+    %% Consumer writes to all storage
+    Consumer -->|Latest OHLCV<br/>ohlcv:latest:SYMBOL| Redis
+    Consumer -->|Enriched Data| InfluxDB
+    Consumer -->|Enriched Data| ClickHouse
+    
+    %% IndicatorEngine stores history
+    IndicatorEngine -->|History Buffer<br/>indicator:history:SYMBOL| Redis
+    
+    %% Signal Processor reads history, writes signals
+    Redis -->|Read History<br/>indicator:history:SYMBOL| SignalProcessor
+    SignalProcessor -->|Write Signals<br/>signals:latest:SYMBOL| Redis
+    
+    %% Portfolio Manager reads signals, writes orders
+    Redis -->|Read Signals<br/>signals:latest:SYMBOL| PortfolioManager
+    PortfolioManager -->|Portfolio State<br/>portfolio:state| Redis
+    PortfolioManager -->|Trade Orders<br/>trade:orders:TIMESTAMP| Redis
+
+    style MongoDB fill:#e1f5ff
+    style Kafka fill:#fff3cd
+    style Redis fill:#ffe6e6
+    style InfluxDB fill:#e8f5e9
+    style ClickHouse fill:#e8f5e9
+    style Consumer fill:#fff9c4
+    style IndicatorEngine fill:#fff9c4
+    style SignalProcessor fill:#f3e5f5
+    style PortfolioManager fill:#f3e5f5

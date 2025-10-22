@@ -1,0 +1,75 @@
+graph TB
+    Start([signal_processor.py<br/>Every 2 seconds])
+    
+    Discover[Discover Symbols<br/>KEYS indicator:history:*]
+    
+    subgraph ParallelProcessing["Parallel Processing (2 Workers)"]
+        direction TB
+        
+        subgraph PerSymbol["For Each Symbol"]
+            FetchHistory[LRANGE 0 -1<br/>Get full history]
+            CheckEnriched{_enriched<br/>flag = true?}
+            SkipSymbol[Skip: Still warming up]
+            
+            ValidateFields{Has indicator<br/>fields?}
+            SkipMissing[Skip: Missing indicators]
+            
+            ConvertDF[Convert to DataFrame]
+            
+            subgraph SignalCalculation["Calculate 6 Signals"]
+                Signal1[Signal 1: Momentum<br/>Directional strength]
+                Signal2[Signal 2: MACD<br/>Trend alignment]
+                Signal3[Signal 3: RSI<br/>Mean reversion]
+                Signal4[Signal 4: Bollinger<br/>Band dynamics]
+                Signal5[Signal 5: Volume<br/>Volume analysis]
+                Signal6[Signal 6: Volatility<br/>ATR-based]
+            end
+            
+            RegimeClass[Classify Regime:<br/>BULL_STRONG<br/>BULL_WEAK<br/>NEUTRAL<br/>BEAR_WEAK<br/>BEAR_STRONG]
+            
+            CalcConfidence[Calculate Confidence<br/>Based on signal consistency]
+            
+            FinalScore[Marker Final Score<br/>Weighted combination]
+            
+            FetchHistory --> CheckEnriched
+            CheckEnriched -->|No| SkipSymbol
+            CheckEnriched -->|Yes| ValidateFields
+            ValidateFields -->|No| SkipMissing
+            ValidateFields -->|Yes| ConvertDF
+            ConvertDF --> Signal1
+            ConvertDF --> Signal2
+            ConvertDF --> Signal3
+            ConvertDF --> Signal4
+            ConvertDF --> Signal5
+            ConvertDF --> Signal6
+            Signal1 --> RegimeClass
+            Signal2 --> RegimeClass
+            Signal3 --> RegimeClass
+            Signal4 --> RegimeClass
+            Signal5 --> RegimeClass
+            Signal6 --> RegimeClass
+            RegimeClass --> CalcConfidence
+            CalcConfidence --> FinalScore
+        end
+    end
+    
+    WriteRedis[HSET signals:latest:SYMBOL<br/>All signal data]
+    PrintSummary[Print Summary Table<br/>Sorted by final score]
+    Wait[Sleep 2 seconds]
+    
+    Start --> Discover
+    Discover --> ParallelProcessing
+    FinalScore --> WriteRedis
+    WriteRedis --> PrintSummary
+    PrintSummary --> Wait
+    Wait --> Start
+
+    style Start fill:#e1f5ff
+    style Discover fill:#fff3e0
+    style ParallelProcessing fill:#f3e5f5
+    style SignalCalculation fill:#e8f5e9
+    style WriteRedis fill:#ffccbc
+    style CheckEnriched fill:#fff9c4
+    style ValidateFields fill:#fff9c4
+    style SkipSymbol fill:#ffebee
+    style SkipMissing fill:#ffebee

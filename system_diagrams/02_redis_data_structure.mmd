@@ -1,0 +1,51 @@
+graph TB
+    subgraph RedisDB0["Redis DB 0 - Latest OHLCV Data"]
+        Latest["ohlcv:latest:SYMBOL<br/>Hash: symbol, timestamp,<br/>open, high, low, close, volume"]
+    end
+
+    subgraph RedisDB1["Redis DB 1 - Indicators, Signals & Portfolio"]
+        History["indicator:history:SYMBOL<br/>List: 60 rows max<br/>OHLCV + all indicators<br/>_enriched: true/false"]
+        Signals["signals:latest:SYMBOL<br/>Hash: 6 signals + scores<br/>regime, confidence"]
+        Portfolio["portfolio:state<br/>Hash: cash, positions<br/>signal_history"]
+        Orders["trade:orders:TIMESTAMP<br/>Hash: order details<br/>action, shares, price"]
+    end
+
+    subgraph Writers["Data Writers"]
+        Consumer[spark_consumer.py]
+        IndicatorEngine[indicator_engine.py]
+        SignalProcessor[signal_processor.py]
+        PortfolioMgr[portfolio_manager.py]
+    end
+
+    subgraph Readers["Data Readers"]
+        SignalProc2[signal_processor.py]
+        PortfolioMgr2[portfolio_manager.py]
+    end
+
+    %% Write Operations
+    Consumer -->|HSET<br/>Latest OHLCV| Latest
+    IndicatorEngine -->|RPUSH + LTRIM<br/>Sliding Window| History
+    SignalProc2 -->|HSET<br/>6 Signals| Signals
+    PortfolioMgr -->|HSET<br/>State Updates| Portfolio
+    PortfolioMgr -->|HSET<br/>Trade Orders| Orders
+
+    %% Read Operations
+    History -->|LRANGE 0 -1<br/>Get Full History| SignalProc2
+    Signals -->|HGETALL<br/>All Signals| PortfolioMgr2
+    Portfolio -->|HGETALL<br/>Load State| PortfolioMgr2
+
+    %% Keys Discovery
+    History -.->|KEYS indicator:history:*<br/>Symbol Discovery| SignalProc2
+    Signals -.->|KEYS signals:latest:*<br/>Symbol Discovery| PortfolioMgr2
+
+    style Latest fill:#ffe6e6
+    style History fill:#fff9c4
+    style Signals fill:#e1f5ff
+    style Portfolio fill:#e8f5e9
+    style Orders fill:#f3e5f5
+    style Consumer fill:#ffccbc
+    style IndicatorEngine fill:#ffccbc
+    style SignalProcessor fill:#c8e6c9
+    style PortfolioMgr fill:#c8e6c9
+    style SignalProc2 fill:#c8e6c9
+    style PortfolioMgr2 fill:#c8e6c9

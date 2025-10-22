@@ -1,0 +1,54 @@
+sequenceDiagram
+    participant Kafka as Kafka Stream
+    participant Consumer as spark_consumer.py
+    participant IndicatorEngine as indicator_engine.py
+    participant Redis as Redis (DB 0 & 1)
+    participant InfluxDB as InfluxDB
+    participant ClickHouse as ClickHouse
+    participant SignalProc as signal_processor.py<br/>(Every 2s)
+    participant PortfolioMgr as portfolio_manager.py<br/>(Every 5 min)
+
+    Note over Kafka,ClickHouse: MAIN PIPELINE (Continuous Stream)
+    
+    Kafka->>Consumer: Batch of OHLCV rows
+    Consumer->>Consumer: Parse & Explode by symbol
+    
+    Consumer->>IndicatorEngine: process_batch(rows)
+    IndicatorEngine->>Redis: RPUSH indicator:history:SYMBOL (raw)
+    IndicatorEngine->>Redis: LTRIM -60, -1 (keep 60 rows)
+    IndicatorEngine->>Redis: LLEN (check count)
+    
+    alt Warm-up Phase (<60 rows)
+        IndicatorEngine-->>Consumer: (False, []) - Still warming up
+        Note over Consumer: Skip this batch
+    else All Symbols Ready (≥60 rows)
+        IndicatorEngine->>Redis: LRANGE 0, -1 (get full history)
+        IndicatorEngine->>IndicatorEngine: Calculate all indicators
+        IndicatorEngine-->>Consumer: (True, enriched_rows)
+        
+        Consumer->>Redis: HSET ohlcv:latest:SYMBOL (DB 0)
+        Consumer->>InfluxDB: Write enriched data
+        Consumer->>ClickHouse: Batch insert enriched data
+    end
+
+    Note over SignalProc,PortfolioMgr: PARALLEL PROCESSORS (Independent Loops)
+
+    loop Every 2 seconds
+        SignalProc->>Redis: KEYS indicator:history:* (discover)
+        SignalProc->>Redis: LRANGE indicator:history:SYMBOL
+        SignalProc->>SignalProc: Check _enriched flag
+        SignalProc->>SignalProc: Calculate 6 signals<br/>(momentum, MACD, RSI, etc)
+        SignalProc->>SignalProc: Calculate regime & confidence
+        SignalProc->>Redis: HSET signals:latest:SYMBOL
+    end
+
+    loop Every 5 minutes
+        PortfolioMgr->>Redis: HGETALL portfolio:state (load)
+        PortfolioMgr->>Redis: KEYS signals:latest:* (discover)
+        PortfolioMgr->>Redis: HGETALL signals:latest:SYMBOL
+        PortfolioMgr->>PortfolioMgr: Update signal history
+        PortfolioMgr->>PortfolioMgr: Calculate target weights
+        PortfolioMgr->>PortfolioMgr: Generate trade orders
+        PortfolioMgr->>Redis: HSET portfolio:state (update)
+        PortfolioMgr->>Redis: HSET trade:orders:TIMESTAMP
+    end

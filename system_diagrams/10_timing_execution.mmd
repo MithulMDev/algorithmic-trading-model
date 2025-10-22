@@ -1,0 +1,47 @@
+gantt
+    title System Execution Timeline (Parallel Processing)
+    dateFormat  ss
+    axisFormat %S s
+
+    section Kafka Stream
+    Kafka Producer (Continuous)          :active, kafka, 00, 60s
+    
+    section Main Pipeline
+    Spark Consumer Batch 1               :active, batch1, 00, 02s
+    Indicator Engine (Warmup)            :crit, warmup1, 00, 02s
+    Spark Consumer Batch 2               :active, batch2, 02, 04s
+    Indicator Engine (Warmup)            :crit, warmup2, 02, 04s
+    Spark Consumer Batch 3               :active, batch3, 04, 06s
+    Indicator Engine (Ready)             :done, ready1, 04, 06s
+    Write to Storage                     :done, write1, 05, 06s
+    Spark Consumer Batch 4               :active, batch4, 06, 08s
+    Indicator Engine (Ready)             :done, ready2, 06, 08s
+    Write to Storage                     :done, write2, 07, 08s
+    
+    section Signal Processor
+    Signal Gen Cycle 1                   :milestone, sig1, 02
+    Process Symbols (2s)                 :active, sigproc1, 02, 04s
+    Write Signals to Redis               :done, sigwrite1, 03, 04s
+    Signal Gen Cycle 2                   :milestone, sig2, 04
+    Process Symbols (2s)                 :active, sigproc2, 04, 06s
+    Write Signals to Redis               :done, sigwrite2, 05, 06s
+    Signal Gen Cycle 3                   :milestone, sig3, 06
+    Process Symbols (2s)                 :active, sigproc3, 06, 08s
+    Write Signals to Redis               :done, sigwrite3, 07, 08s
+    
+    section Portfolio Manager
+    Wait for 5 min                       :crit, wait, 00, 05s
+    Portfolio Cycle 1                    :milestone, port1, 05
+    Load Portfolio & Signals             :active, portload, 05, 06s
+    Calculate Targets                    :active, porttarget, 06, 07s
+    Generate Orders                      :active, portorder, 07, 08s
+    Save State & Orders                  :done, portsave, 08, 09s
+    
+    section Redis Activity
+    Write indicator:history:*            :hist1, 01, 02s
+    Write indicator:history:*            :hist2, 03, 04s
+    Write indicator:history:*            :hist3, 05, 06s
+    Write signals:latest:*               :sig1r, 03, 04s
+    Write signals:latest:*               :sig2r, 05, 06s
+    Write signals:latest:*               :sig3r, 07, 08s
+    Read signals + Write orders          :portr, 05, 09s

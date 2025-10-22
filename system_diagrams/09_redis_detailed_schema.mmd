@@ -1,0 +1,49 @@
+graph TB
+    subgraph RedisDB0["Redis Database 0"]
+        direction TB
+        Latest["ohlcv:latest:SYMBOL (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>symbol: string<br/>timestamp: ISO datetime<br/>open: float<br/>high: float<br/>low: float<br/>close: float<br/>volume: float<br/>date: string<br/>time: string"]
+    end
+
+    subgraph RedisDB1["Redis Database 1"]
+        direction TB
+        
+        History["indicator:history:SYMBOL (List)<br/>━━━━━━━━━━━━━━━━━━━<br/>Max 60 items (LTRIM)<br/>Each item JSON with:<br/>• Original: symbol, timestamp, OHLCV<br/>• Indicators (14): sma_5, sma_10, ema_7, ema_11<br/>  macd_line, macd_signal, atr_14, momentum<br/>  bb_upper, bb_lower, vma_10, volume_ratio<br/>  rsi_14, price_change, price_change_pct<br/>• Metadata: _enriched (bool)"]
+        
+        Signals["signals:latest:SYMBOL (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>symbol: string<br/>timestamp: ISO datetime<br/>close: float<br/>volume: float<br/>atr_14: float<br/>• 6 Signals: signal_1_momentum<br/>  signal_2_macd, signal_3_rsi<br/>  signal_4_bollinger, signal_5_volume<br/>  signal_6_volatility<br/>• Regime: regime (string)<br/>  regime_confidence: float<br/>• Final: marker_final_score: float"]
+        
+        Portfolio["portfolio:state (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>cash: string (float)<br/>total_value: string (float)<br/>cycle: string (int)<br/>trades_today: string (int)<br/>position_count: string (int)<br/>cash_percentage: string (float)<br/>last_updated: ISO datetime<br/>positions: JSON string {<br/>  symbol: {<br/>    shares, avg_price, current_price<br/>    entry_signal, last_action_signal<br/>    last_action_cycle, cycles_held<br/>  }<br/>}<br/>signal_history: JSON string {<br/>  symbol: [score1, score2, score3, score4]<br/>}"]
+        
+        Orders["trade:orders:TIMESTAMP (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>order_id: UUID<br/>timestamp: ISO datetime<br/>symbol: string<br/>action: BUY/SELL<br/>shares: int<br/>price: float<br/>dollar_amount: float<br/>reason: string<br/>signal_score: float<br/>signal_strength: float<br/>confidence: float<br/>current_weight: float<br/>target_weight: float<br/>priority: int"]
+    end
+
+    subgraph Writers["Write Operations"]
+        W1["spark_consumer.py<br/>→ ohlcv:latest:*"]
+        W2["indicator_engine.py<br/>→ indicator:history:*<br/>RPUSH + LTRIM"]
+        W3["signal_processor.py<br/>→ signals:latest:*"]
+        W4["portfolio_manager.py<br/>→ portfolio:state<br/>→ trade:orders:*"]
+    end
+
+    subgraph Readers["Read Operations"]
+        R1["signal_processor.py<br/>← indicator:history:*<br/>LRANGE 0 -1"]
+        R2["portfolio_manager.py<br/>← signals:latest:*<br/>← portfolio:state<br/>HGETALL"]
+    end
+
+    W1 -.-> Latest
+    W2 -.-> History
+    W3 -.-> Signals
+    W4 -.-> Portfolio
+    W4 -.-> Orders
+    
+    History -.-> R1
+    Signals -.-> R2
+    Portfolio -.-> R2
+
+    style Latest fill:#ffebee
+    style History fill:#fff3e0
+    style Signals fill:#e1f5ff
+    style Portfolio fill:#e8f5e9
+    style Orders fill:#f3e5f5
+    style RedisDB0 fill:#fce4ec
+    style RedisDB1 fill:#e0f2f1
+    style Writers fill:#ffccbc
+    style Readers fill:#c8e6c9

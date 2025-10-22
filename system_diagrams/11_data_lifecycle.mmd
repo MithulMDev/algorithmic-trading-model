@@ -1,0 +1,133 @@
+stateDiagram-v2
+    [*] --> MongoDB: Data exists in DB
+    
+    MongoDB --> Kafka: Producer reads & streams
+    
+    Kafka --> ConsumerReceived: Consumer reads batch
+    
+    state ConsumerReceived {
+        [*] --> Parsing: Parse JSON
+        Parsing --> Exploding: Explode by symbol
+        Exploding --> [*]
+    }
+    
+    ConsumerReceived --> IndicatorEngine: Forward to engine
+    
+    state IndicatorEngine {
+        [*] --> StoreInRedis: RPUSH to history list
+        StoreInRedis --> CheckCount: Count rows
+        
+        state CheckCount <<choice>>
+        CheckCount --> WarmingUp: < 60 rows
+        CheckCount --> Ready: ≥ 60 rows
+        
+        WarmingUp --> [*]: Return (False, [])
+        
+        state Ready {
+            [*] --> LoadHistory: LRANGE full history
+            LoadHistory --> Calculate: Calculate indicators
+            Calculate --> DetermineReturn: Check if first ready
+            
+            state DetermineReturn <<choice>>
+            DetermineReturn --> ReturnBulk: First time ready
+            DetermineReturn --> ReturnNew: Already warmed
+            
+            ReturnBulk --> [*]: Return rows 35-60
+            ReturnNew --> [*]: Return new rows
+        }
+        
+        Ready --> [*]: Return (True, enriched)
+    }
+    
+    IndicatorEngine --> Skipped: Warming up
+    IndicatorEngine --> StorageWrite: Enriched data
+    
+    state StorageWrite {
+        [*] --> RedisDB0: Latest OHLCV
+        [*] --> RedisDB1: History with indicators
+        [*] --> InfluxDB: Time-series
+        [*] --> ClickHouse: Analytics
+        RedisDB0 --> [*]
+        RedisDB1 --> [*]
+        InfluxDB --> [*]
+        ClickHouse --> [*]
+    }
+    
+    StorageWrite --> AvailableForSignals: Data ready in Redis DB1
+    
+    state SignalProcessorLoop {
+        [*] --> DiscoverSymbols: Every 2s
+        DiscoverSymbols --> ReadHistory: LRANGE history
+        ReadHistory --> CheckEnriched: Validate _enriched
+        
+        state CheckEnriched <<choice>>
+        CheckEnriched --> SkipSymbol: Not enriched
+        CheckEnriched --> CalculateSignals: Enriched
+        
+        SkipSymbol --> [*]
+        
+        state CalculateSignals {
+            [*] --> Signal1: Momentum
+            [*] --> Signal2: MACD
+            [*] --> Signal3: RSI
+            [*] --> Signal4: Bollinger
+            [*] --> Signal5: Volume
+            [*] --> Signal6: Volatility
+            Signal1 --> Regime
+            Signal2 --> Regime
+            Signal3 --> Regime
+            Signal4 --> Regime
+            Signal5 --> Regime
+            Signal6 --> Regime
+            Regime --> Confidence
+            Confidence --> FinalScore
+            FinalScore --> [*]
+        }
+        
+        CalculateSignals --> WriteSignals: HSET signals
+        WriteSignals --> [*]: Wait 2s
+    }
+    
+    AvailableForSignals --> SignalProcessorLoop
+    
+    state PortfolioManagerLoop {
+        [*] --> LoadState: Every 5 min
+        LoadState --> LoadSignals: HGETALL signals
+        LoadSignals --> UpdateHistory: Track signal trends
+        UpdateHistory --> CalculateTargets: Determine weights
+        
+        state CalculateTargets {
+            [*] --> ClassifySignals
+            ClassifySignals --> CalcConfidence
+            CalcConfidence --> BaseAllocation
+            BaseAllocation --> Normalize
+            Normalize --> [*]
+        }
+        
+        CalculateTargets --> GenerateOrders: Compare current vs target
+        
+        state GenerateOrders {
+            [*] --> CompareWeights
+            CompareWeights --> BuyOrders: Increase needed
+            CompareWeights --> SellOrders: Decrease needed
+            CompareWeights --> NoOrders: Within threshold
+            BuyOrders --> Prioritize
+            SellOrders --> Prioritize
+            NoOrders --> Prioritize
+            Prioritize --> [*]
+        }
+        
+        GenerateOrders --> Validate: Check cash & limits
+        
+        state Validate <<choice>>
+        Validate --> SaveOrders: Valid
+        Validate --> DropExcess: Invalid
+        
+        DropExcess --> SaveOrders
+        SaveOrders --> SaveState: Update portfolio
+        SaveState --> [*]: Wait 5 min
+    }
+    
+    SignalProcessorLoop --> PortfolioManagerLoop: Signals available
+    
+    PortfolioManagerLoop --> [*]: Orders & state saved

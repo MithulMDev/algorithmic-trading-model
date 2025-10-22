@@ -1,0 +1,66 @@
+graph TB
+    subgraph ExternalSystems["External Systems"]
+        MongoDB[(MongoDB)]
+        Kafka[Apache Kafka]
+    end
+
+    subgraph CoreProcessing["Core Processing Components"]
+        SparkConsumer[spark_consumer.py<br/>━━━━━━━━━━━━<br/>Depends on:<br/>• Kafka<br/>• IndicatorEngine<br/>• RedisManager<br/>• InfluxManager<br/>• ClickHouseManager]
+        
+        IndicatorEngine[indicator_engine.py<br/>━━━━━━━━━━━━<br/>Depends on:<br/>• Redis DB 1<br/>No dependencies on<br/>other scripts]
+    end
+
+    subgraph IndependentProcessors["Independent Processors"]
+        SignalProcessor[signal_processor.py<br/>━━━━━━━━━━━━<br/>Depends on:<br/>• Redis DB 1<br/>• indicator:history:*<br/>Requires:<br/>• _enriched = true<br/>No dependencies on<br/>other scripts]
+        
+        PortfolioManager[portfolio_manager.py<br/>━━━━━━━━━━━━<br/>Depends on:<br/>• Redis DB 1<br/>• signals:latest:*<br/>No dependencies on<br/>other scripts]
+    end
+
+    subgraph SharedStorage["Shared Storage Layer"]
+        RedisDB0[(Redis DB 0<br/>ohlcv:latest:*)]
+        RedisDB1[(Redis DB 1<br/>indicator:history:*<br/>signals:latest:*<br/>portfolio:state<br/>trade:orders:*)]
+        InfluxDB[(InfluxDB)]
+        ClickHouse[(ClickHouse)]
+    end
+
+    %% Data Sources
+    MongoDB -->|Produces| Kafka
+    Kafka -->|Consumes| SparkConsumer
+    
+    %% Core Processing Dependencies
+    SparkConsumer -->|Invokes| IndicatorEngine
+    IndicatorEngine -->|Writes| RedisDB1
+    IndicatorEngine -->|Returns enriched data| SparkConsumer
+    SparkConsumer -->|Writes| RedisDB0
+    SparkConsumer -->|Writes| RedisDB1
+    SparkConsumer -->|Writes| InfluxDB
+    SparkConsumer -->|Writes| ClickHouse
+    
+    %% Independent Processor Dependencies
+    RedisDB1 -->|Reads indicator:history:*| SignalProcessor
+    SignalProcessor -->|Writes signals:latest:*| RedisDB1
+    
+    RedisDB1 -->|Reads signals:latest:*| PortfolioManager
+    RedisDB1 -->|Reads/Writes portfolio:state| PortfolioManager
+    PortfolioManager -->|Writes trade:orders:*| RedisDB1
+    
+    %% Dependency annotations
+    SparkConsumer -.->|Requires| IndicatorEngine
+    SignalProcessor -.->|Requires enriched data from| IndicatorEngine
+    PortfolioManager -.->|Requires signals from| SignalProcessor
+    
+    style MongoDB fill:#e3f2fd
+    style Kafka fill:#fff3e0
+    style SparkConsumer fill:#fff9c4
+    style IndicatorEngine fill:#fff9c4
+    style SignalProcessor fill:#f3e5f5
+    style PortfolioManager fill:#f3e5f5
+    style RedisDB0 fill:#ffebee
+    style RedisDB1 fill:#ffebee
+    style InfluxDB fill:#e8f5e9
+    style ClickHouse fill:#e8f5e9
+    
+    style ExternalSystems fill:#e1f5ff,stroke:#0277bd
+    style CoreProcessing fill:#fff9c4,stroke:#f57f17
+    style IndependentProcessors fill:#f3e5f5,stroke:#6a1b9a
+    style SharedStorage fill:#ffccbc,stroke:#d84315
