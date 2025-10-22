@@ -1,0 +1,91 @@
+graph TB
+    subgraph Scripts["Scripts / Processes"]
+        SparkConsumer["spark_consumer.py<br/>(Continuous)"]
+        IndicatorEngine["indicator_engine.py<br/>(Called by consumer)"]
+        SignalProcessor["signal_processor.py<br/>(Every 2 seconds)"]
+        PortfolioMgr["portfolio_manager.py<br/>(Every 5 minutes)"]
+    end
+    
+    subgraph RedisDB0["Redis Database 0"]
+        Latest["ohlcv:latest:AAPL<br/>ohlcv:latest:MSFT<br/>ohlcv:latest:GOOGL<br/>...<br/>(One per symbol)"]
+    end
+    
+    subgraph RedisDB1["Redis Database 1"]
+        History["indicator:history:AAPL<br/>indicator:history:MSFT<br/>indicator:history:GOOGL<br/>...<br/>(List: 60 rows max)<br/>(One per symbol)"]
+        
+        Signals["signals:latest:AAPL<br/>signals:latest:MSFT<br/>signals:latest:GOOGL<br/>...<br/>(Hash: 6 signals + scores)<br/>(One per symbol)"]
+        
+        Portfolio["portfolio:state<br/>(Hash: Single key)<br/>Contains:<br/>• Cash & totals<br/>• All positions<br/>• Signal history for ALL symbols"]
+        
+        Orders["trade:orders:TIMESTAMP-1<br/>trade:orders:TIMESTAMP-2<br/>trade:orders:TIMESTAMP-3<br/>...<br/>(Hash: One per order)<br/>(Timestamped)"]
+    end
+    
+    %% WRITE Operations
+    SparkConsumer -->|HSET<br/>Write latest tick| Latest
+    IndicatorEngine -->|RPUSH + LTRIM<br/>Maintain 60-row window| History
+    SignalProcessor -->|HSET<br/>Write 6 signals| Signals
+    PortfolioMgr -->|HSET<br/>Update state| Portfolio
+    PortfolioMgr -->|HSET<br/>Save orders| Orders
+    
+    %% READ Operations
+    History -.->|LRANGE 0 -1<br/>Read full history| SignalProcessor
+    Signals -.->|HGETALL<br/>Read all signals| PortfolioMgr
+    Portfolio -.->|HGETALL<br/>Load current state| PortfolioMgr
+    
+    %% Discovery Operations
+    History -.->|KEYS indicator:history:*<br/>Discover symbols| SignalProcessor
+    Signals -.->|KEYS signals:latest:*<br/>Discover symbols| PortfolioMgr
+    
+    subgraph KeyCharacteristics["Key Characteristics"]
+        direction TB
+        
+        KC1["ohlcv:latest:*<br/>━━━━━━━━━━━━<br/>Type: Hash<br/>Cardinality: N symbols<br/>Update: Every batch<br/>Size: ~10 fields<br/>Retention: Latest only"]
+        
+        KC2["indicator:history:*<br/>━━━━━━━━━━━━<br/>Type: List<br/>Cardinality: N symbols<br/>Update: Every batch<br/>Size: 60 JSON objects<br/>Retention: Sliding window"]
+        
+        KC3["signals:latest:*<br/>━━━━━━━━━━━━<br/>Type: Hash<br/>Cardinality: N symbols<br/>Update: Every 2s<br/>Size: ~15 fields<br/>Retention: Latest only"]
+        
+        KC4["portfolio:state<br/>━━━━━━━━━━━━<br/>Type: Hash<br/>Cardinality: 1 (singleton)<br/>Update: Every 5 min<br/>Size: ~8 fields + JSON<br/>Retention: Current state"]
+        
+        KC5["trade:orders:*<br/>━━━━━━━━━━━━<br/>Type: Hash<br/>Cardinality: M orders<br/>Update: Every 5 min<br/>Size: ~15 fields<br/>Retention: Forever (archive)"]
+    end
+    
+    subgraph SignalHistoryMechanism["Signal History: How It Works"]
+        direction LR
+        
+        SH1["Cycle 1 (5 min mark)<br/>Portfolio loads signals:<br/>AAPL: 1.45<br/>MSFT: 1.38"]
+        
+        SH2["Cycle 2 (10 min mark)<br/>Portfolio loads signals:<br/>AAPL: 1.48<br/>MSFT: 1.40<br/><br/>History now:<br/>AAPL: [1.45, 1.48]<br/>MSFT: [1.38, 1.40]"]
+        
+        SH3["Cycle 3 (15 min mark)<br/>Portfolio loads signals:<br/>AAPL: 1.52<br/>MSFT: 1.42<br/><br/>History now:<br/>AAPL: [1.45, 1.48, 1.52]<br/>MSFT: [1.38, 1.40, 1.42]"]
+        
+        SH4["Cycle 4 (20 min mark)<br/>Portfolio loads signals:<br/>AAPL: 1.50<br/>MSFT: 1.41<br/><br/>History now:<br/>AAPL: [1.45, 1.48, 1.52, 1.50]<br/>MSFT: [1.38, 1.40, 1.42, 1.41]"]
+        
+        SH5["Cycle 5 (25 min mark)<br/>Portfolio loads signals:<br/>AAPL: 1.53<br/>MSFT: 1.43<br/><br/>History (rolling window):<br/>AAPL: [1.48, 1.52, 1.50, 1.53]<br/>MSFT: [1.40, 1.42, 1.41, 1.43]<br/><br/>Oldest (1.45, 1.38) dropped!"]
+        
+        SH1 --> SH2 --> SH3 --> SH4 --> SH5
+    end
+    
+    subgraph DataOwnerships["Data Ownership"]
+        direction TB
+        
+        Own1["✓ indicator_engine.py<br/>OWNS: indicator:history:*<br/>Nobody else writes to this"]
+        
+        Own2["✓ signal_processor.py<br/>OWNS: signals:latest:*<br/>Nobody else writes to this"]
+        
+        Own3["✓ portfolio_manager.py<br/>OWNS: portfolio:state<br/>OWNS: trade:orders:*<br/>Nobody else writes to these<br/><br/>CREATES: signal_history<br/>Maintains its own rolling window"]
+        
+        Own4["✓ spark_consumer.py<br/>OWNS: ohlcv:latest:*<br/>Nobody else writes to this"]
+    end
+    
+    style SparkConsumer fill:#fff9c4
+    style IndicatorEngine fill:#fff9c4
+    style SignalProcessor fill:#ce93d8
+    style PortfolioMgr fill:#ffcc80
+    style Latest fill:#ffebee
+    style History fill:#fff3e0
+    style Signals fill:#e1f5ff
+    style Portfolio fill:#e8f5e9
+    style Orders fill:#ffe0b2
+    style SignalHistoryMechanism fill:#c8e6c9
+    style DataOwnerships fill:#b2dfdb

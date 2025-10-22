@@ -369,7 +369,7 @@ services:
       - ./spark-consumer/indicator_engine.py:/app/indicator_engine.py
       - ./spark-consumer/influx_manager.py:/app/influx_manager.py
       - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
-    command: python /app/signal_processor.py
+    command: sh -c "sleep 30 && python /app/signal_processor.py"    # this sleeps for 30 seconds and starts after 30 sec after th spark consumer starts
     healthcheck:
       test: ["/app/healthcheck.sh", "signal-processor"]
       interval: 30s
@@ -438,7 +438,7 @@ services:
       - ./spark-consumer/portfolio_manager.py:/app/portfolio_manager.py
       - ./spark-consumer/influx_manager.py:/app/influx_manager.py
       - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
-    command: python /app/portfolio_manager.py
+    command: sh -c "sleep 120 && python /app/portfolio_manager.py"   # this sleeps for 2 mins and then starts
     healthcheck:
       test: ["/app/healthcheck.sh", "portfolio-manager"]
       interval: 30s

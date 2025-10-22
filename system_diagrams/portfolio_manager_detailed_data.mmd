@@ -1,0 +1,73 @@
+graph TB
+    subgraph EveryFiveMinutes["Portfolio Manager Cycle (Every 5 Minutes)"]
+        Start([Start Cycle N])
+        
+        subgraph ReadPhase["READ PHASE"]
+            R1[Read portfolio:state<br/>HGETALL]
+            R2[Discover symbols<br/>KEYS signals:latest:*]
+            R3[Read all signals<br/>HGETALL signals:latest:SYMBOL<br/>for each symbol]
+        end
+        
+        subgraph ProcessPhase["PROCESSING PHASE"]
+            P1[Update Signal History<br/>Append new scores<br/>Keep last 4 periods]
+            P2[Update Position Prices<br/>From current signals]
+            P3[Calculate Confidence<br/>From signal consistency]
+            P4[Calculate Target Weights<br/>Based on signals & confidence]
+            P5[Generate Trade Orders<br/>Compare current vs target]
+            P6[Validate Orders<br/>Check cash & limits]
+        end
+        
+        subgraph WritePhase["WRITE PHASE"]
+            W1[Save portfolio:state<br/>HSET all fields]
+            W2[Save trade orders<br/>HSET trade:orders:TIMESTAMP<br/>for each order]
+        end
+        
+        Start --> R1
+        R1 --> R2
+        R2 --> R3
+        R3 --> P1
+        P1 --> P2
+        P2 --> P3
+        P3 --> P4
+        P4 --> P5
+        P5 --> P6
+        P6 --> W1
+        W1 --> W2
+        W2 --> End([Wait 5 minutes])
+    end
+    
+    subgraph RedisDB1["Redis DB 1 - Data Structures"]
+        direction TB
+        
+        PortfolioState["portfolio:state (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>cash: 7500000.00<br/>total_value: 10000000.00<br/>cycle: 12<br/>trades_today: 8<br/>position_count: 5<br/>cash_percentage: 0.75<br/>last_updated: ISO timestamp<br/>━━━━━━━━━━━━━━━━━━━<br/>positions: JSON {<br/>  AAPL: {shares, avg_price,<br/>         current_price, entry_signal,<br/>         last_action_signal, cycles_held}<br/>  MSFT: {...}<br/>}<br/>━━━━━━━━━━━━━━━━━━━<br/>signal_history: JSON {<br/>  AAPL: [1.45, 1.48, 1.52, 1.50]<br/>  MSFT: [1.38, 1.40, 1.42, 1.41]<br/>  GOOGL: [1.55, 1.52, 1.48, 1.46]<br/>}"]
+        
+        SignalsData["signals:latest:AAPL (Hash)<br/>signals:latest:MSFT (Hash)<br/>signals:latest:GOOGL (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>Each contains:<br/>symbol, timestamp, close<br/>volume, atr_14<br/>6 signals (1-6)<br/>regime, regime_confidence<br/>marker_final_score"]
+        
+        OrdersData["trade:orders:2025-10-22T10:30:00.123 (Hash)<br/>trade:orders:2025-10-22T10:30:00.124 (Hash)<br/>━━━━━━━━━━━━━━━━━━━<br/>Each contains:<br/>order_id, timestamp, symbol<br/>action (BUY/SELL), shares, price<br/>dollar_amount, reason<br/>signal_score, confidence<br/>current_weight, target_weight<br/>priority"]
+    end
+    
+    R1 -.->|Read| PortfolioState
+    R3 -.->|Read| SignalsData
+    W1 -.->|Write| PortfolioState
+    W2 -.->|Write| OrdersData
+    
+    subgraph DataTransformation["Signal History Update Example"]
+        Before["Before (Cycle N-1):<br/>AAPL: [1.45, 1.48, 1.52, 1.50]<br/>MSFT: [1.38, 1.40, 1.42, 1.41]"]
+        NewSignals["New Signals (Cycle N):<br/>AAPL: 1.53<br/>MSFT: 1.43"]
+        After["After (Cycle N):<br/>AAPL: [1.48, 1.52, 1.50, 1.53]<br/>MSFT: [1.40, 1.42, 1.41, 1.43]<br/><br/>Oldest dropped, newest added"]
+        
+        Before --> NewSignals
+        NewSignals --> After
+    end
+    
+    P1 -.->|Updates| DataTransformation
+    
+    style Start fill:#e1f5ff
+    style End fill:#e1f5ff
+    style ReadPhase fill:#fff3e0
+    style ProcessPhase fill:#e8f5e9
+    style WritePhase fill:#ffccbc
+    style PortfolioState fill:#f3e5f5
+    style SignalsData fill:#e3f2fd
+    style OrdersData fill:#ffe0b2
+    style DataTransformation fill:#c8e6c9
