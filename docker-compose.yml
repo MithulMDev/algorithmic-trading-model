@@ -18,6 +18,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
   # Kafka Broker
   kafka:
@@ -53,8 +55,10 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+      start_period: 30s
     volumes:
       - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
 
   # Redis - In-Memory Cache for Latest OHLCV Data
   redis:
@@ -63,21 +67,26 @@ services:
     container_name: redis
     ports:
       - "6379:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
     networks:
       - kafka-network
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 5s
+    restart: unless-stopped
 
   # RedisInsight - Official Redis GUI
   redis-insight:
     image: redis/redisinsight:latest
     container_name: redis-insight
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     ports:
       - "5540:5540"
     networks:
@@ -87,6 +96,73 @@ services:
     environment:
       RIPORT: 5540
       RIHOST: 0.0.0.0
+    restart: unless-stopped
+
+  # InfluxDB - Time Series Database
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: password123
+      DOCKER_INFLUXDB_INIT_ORG: my-org
+      DOCKER_INFLUXDB_INIT_BUCKET: ohlcv_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-secret-auth-token
+    networks:
+      - kafka-network
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ClickHouse - Analytics Database
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    networks:
+      - kafka-network
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ClickHouse Web UI (Tabix)
+  clickhouse-ui:
+    image: spoonest/clickhouse-tabix-web-client:latest
+    container_name: clickhouse-ui
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8088:80"
+    networks:
+      - kafka-network
+    environment:
+      CH_HOST: clickhouse
+      CH_PORT: 8123
+      CH_USER: default
+      CH_PASS: ""
+    restart: unless-stopped
 
   # Python Producer Application
   producer:
@@ -129,13 +205,19 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
 
   # Optional: Kafka UI for monitoring
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -144,73 +226,18 @@ services:
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
       - kafka-network
+    restart: unless-stopped
 
-  # Influxdb
-  influxdb:
-    image: influxdb:2.7-alpine
-    container_name: influxdb
-    ports:
-      - "8086:8086"
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: password123
-      DOCKER_INFLUXDB_INIT_ORG: my-org
-      DOCKER_INFLUXDB_INIT_BUCKET: ohlcv_data
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-secret-auth-token
-    networks:
-      - kafka-network
-    volumes:
-      - influxdb-data:/var/lib/influxdb2
-    healthcheck:
-      test: ["CMD", "influx", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # ===================================================================
+  # OHLCV PROCESSING SERVICES (3 separate services)
+  # ===================================================================
 
-  # ClickHouse
-  clickhouse:
-    image: clickhouse/clickhouse-server:23.8-alpine
-    container_name: clickhouse
-    ports:
-      - "8123:8123"
-      - "9000:9000"
-    environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
-    networks:
-      - kafka-network
-    volumes:
-      - clickhouse-data:/var/lib/clickhouse
-    healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ClickHouse Web UI (Tabix)
-  clickhouse-ui:
-    image: spoonest/clickhouse-tabix-web-client:latest
-    container_name: clickhouse-ui
-    depends_on:
-      - clickhouse
-    ports:
-      - "8088:80"
-    networks:
-      - kafka-network
-    environment:
-      CH_HOST: clickhouse
-      CH_PORT: 8123
-      CH_USER: default
-      CH_PASS: ""
-
-  # Spark Consumer Application
+  # Service 1: Spark Consumer (Reads from Kafka, writes to Redis/InfluxDB/ClickHouse)
   spark-consumer:
     build:
       context: ./spark-consumer
       dockerfile: Dockerfile
-    container_name: ohlcv-spark-consumer
+    container_name: spark-consumer
     depends_on:
       kafka:
         condition: service_healthy
@@ -223,26 +250,34 @@ services:
       producer:
         condition: service_started
     environment:
+      # Kafka Configuration
       KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
       KAFKA_TOPIC: "ohlcv-stream"
       KAFKA_STARTING_OFFSETS: "earliest"
       KAFKA_MAX_OFFSETS_PER_TRIGGER: "1000"
+      
+      # Spark Configuration
       SPARK_APP_NAME: "OHLCV-Spark-Consumer"
       TRIGGER_INTERVAL: "500 milliseconds"
       CHECKPOINT_LOCATION: "/app/checkpoints"
-      LOG_DIR: "/app/logs"
-      DATA_LOG_DIR: "/app/logs/data"
+      
+      # Logging Configuration
+      LOG_DIR: "/app/logs/spark"
+      DATA_LOG_DIR: "/app/logs/spark/data"
       LOG_LEVEL: "INFO"
+      
       # Redis Configuration
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       REDIS_DB: "0"
       REDIS_SOCKET_TIMEOUT: "5"
+      
       # InfluxDB Configuration
       INFLUX_URL: "http://influxdb:8086"
       INFLUX_TOKEN: "my-super-secret-auth-token"
       INFLUX_ORG: "my-org"
       INFLUX_BUCKET: "ohlcv_data"
+      
       # ClickHouse Configuration
       CLICKHOUSE_HOST: "clickhouse"
       CLICKHOUSE_PORT: "8123"
@@ -254,13 +289,171 @@ services:
     volumes:
       - ./logs/spark:/app/logs
       - ./spark-consumer/spark_consumer.py:/app/spark_consumer.py
+      - ./spark-consumer/influx_manager.py:/app/influx_manager.py
+      - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
+      - ./spark-consumer/indicator_engine.py:/app/indicator_engine.py
       - spark-checkpoints:/app/checkpoints
     command: >
       spark-submit
       --master local[*]
+      --driver-memory 1g
+      --executor-memory 1g
       --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
+      --conf spark.sql.streaming.checkpointLocation=/app/checkpoints
+      --conf spark.streaming.stopGracefullyOnShutdown=true
       /app/spark_consumer.py
+    healthcheck:
+      test: ["/app/healthcheck.sh", "spark-consumer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Service 2: Signal Processor (Reads from Redis, generates trading signals)
+  signal-processor:
+    build:
+      context: ./spark-consumer
+      dockerfile: Dockerfile
+    container_name: signal-processor
+    depends_on:
+      spark-consumer:
+        condition: service_started  # Start after spark-consumer starts
+      redis:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      # Logging Configuration
+      LOG_DIR: "/app/logs/signals"
+      LOG_LEVEL: "INFO"
+      
+      # Redis Configuration (Primary data source)
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_SOCKET_TIMEOUT: "5"
+      
+      # InfluxDB Configuration (For historical data if needed)
+      INFLUX_URL: "http://influxdb:8086"
+      INFLUX_TOKEN: "my-super-secret-auth-token"
+      INFLUX_ORG: "my-org"
+      INFLUX_BUCKET: "ohlcv_data"
+      
+      # ClickHouse Configuration (For analytics)
+      CLICKHOUSE_HOST: "clickhouse"
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: "default"
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: "default"
+      
+      # Signal Processing Configuration
+      SIGNAL_CHECK_INTERVAL: "1"  # Check for new data every 1 second
+      MIN_DATA_POINTS: "20"  # Minimum data points needed for signal generation
+      LOOKBACK_PERIOD: "100"  # Number of candles to look back for analysis
+    networks:
+      - kafka-network
+    volumes:
+      - ./logs/signals:/app/logs
+      - ./spark-consumer/signal_processor.py:/app/signal_processor.py
+      - ./spark-consumer/indicator_engine.py:/app/indicator_engine.py
+      - ./spark-consumer/influx_manager.py:/app/influx_manager.py
+      - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
+    command: python /app/signal_processor.py
+    healthcheck:
+      test: ["/app/healthcheck.sh", "signal-processor"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Service 3: Portfolio Manager (Reads signals, manages portfolio)
+  portfolio-manager:
+    build:
+      context: ./spark-consumer
+      dockerfile: Dockerfile
+    container_name: portfolio-manager
+    depends_on:
+      signal-processor:
+        condition: service_started  # Start after signal-processor starts
+      redis:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      # Logging Configuration
+      LOG_DIR: "/app/logs/portfolio"
+      LOG_LEVEL: "INFO"
+      
+      # Redis Configuration (Primary data source)
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_SOCKET_TIMEOUT: "5"
+      
+      # InfluxDB Configuration
+      INFLUX_URL: "http://influxdb:8086"
+      INFLUX_TOKEN: "my-super-secret-auth-token"
+      INFLUX_ORG: "my-org"
+      INFLUX_BUCKET: "ohlcv_data"
+      
+      # ClickHouse Configuration
+      CLICKHOUSE_HOST: "clickhouse"
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: "default"
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: "default"
+      
+      # Portfolio Configuration
+      INITIAL_CAPITAL: "100000"  # Starting capital
+      MAX_POSITIONS: "10"  # Maximum number of concurrent positions
+      POSITION_SIZE_PCT: "10"  # Percentage of capital per position
+      RISK_PER_TRADE: "2"  # Maximum risk per trade (%)
+      PORTFOLIO_UPDATE_INTERVAL: "5"  # Update portfolio every 5 seconds
+    networks:
+      - kafka-network
+    volumes:
+      - ./logs/portfolio:/app/logs
+      - ./spark-consumer/portfolio_manager.py:/app/portfolio_manager.py
+      - ./spark-consumer/influx_manager.py:/app/influx_manager.py
+      - ./spark-consumer/clickhouse_manager.py:/app/clickhouse_manager.py
+    command: python /app/portfolio_manager.py
+    healthcheck:
+      test: ["/app/healthcheck.sh", "portfolio-manager"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
 networks:
   kafka-network:
@@ -268,6 +461,8 @@ networks:
 
 volumes:
   redis-insight-data:
+    driver: local
+  redis-data:
     driver: local
   kafka-data:
     driver: local
@@ -278,3 +473,4 @@ volumes:
     driver: local
   clickhouse-data:
     driver: local
+    
