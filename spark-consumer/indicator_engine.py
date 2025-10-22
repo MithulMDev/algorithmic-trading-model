@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
+from dateutil.parser import parse as parse_datetime
+
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -28,7 +30,7 @@ class IndicatorEngine:
     """
     
     def __init__(self, logger, redis_host: str = "redis", redis_port: int = 6379, 
-                 redis_db: int = 1, warmup_rows: int = 30):
+                 redis_db: int = 1, warmup_rows: int = 60):
         """
         Initialize IndicatorEngine
         
@@ -348,6 +350,9 @@ class IndicatorEngine:
                 self.logger.info(
                     f"  {symbol}: Returning {num_new_rows} new row(s)"
                 )
+                        
+            if idx < 26:  # MACD needs 26 periods minimum
+                continue  # Skip rows that don't have all indicators
             
             # ============================================================
             # Extract and format rows to return
@@ -355,6 +360,13 @@ class IndicatorEngine:
             for idx in range(start_idx, len(df_enriched)):
                 enriched_row = df_enriched.iloc[idx]
                 original_row = full_history[idx]
+
+                # Validate timestamp
+                try:
+                    if isinstance(original_row['timestamp'], str):
+                        parse_datetime(original_row['timestamp'])
+                except:
+                    self.logger.warning(f"Invalid timestamp: {original_row['timestamp']}")
                 
                 # Build output row with all fields
                 output_row = {
