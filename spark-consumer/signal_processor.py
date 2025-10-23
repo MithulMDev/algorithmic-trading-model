@@ -706,8 +706,6 @@ class HFTSignalGenerator:
             'INFLUX_ORG': INFLUX_ORG,    
             'INFLUX_BUCKET': INFLUX_BUCKET  # these are all given as the default values as given in the consumer script
         })()
-
-        
             
         # Create separate logger for InfluxDB
         influx_log_file = Path(config.LOG_DIR) / f"influx_signals_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
