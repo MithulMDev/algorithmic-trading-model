@@ -208,6 +208,149 @@ class InfluxManager:
         
         return {'success': success_count, 'failed': fail_count}
     
+
+    def write_signals_batch(self, signals_data: List[Dict]) -> Dict[str, int]:
+        """
+        Write batch of signal results to InfluxDB
+        
+        Args:
+            signals_data: List of signal result dictionaries from SignalProcessor
+            
+        Returns:
+            Dict with success and failure counts
+        """
+        success_count = 0
+        fail_count = 0
+        
+        if not signals_data:
+            return {'success': 0, 'failed': 0}
+        
+        try:
+            self.influx_logger.info("-" * 80)
+            self.influx_logger.info(f"SIGNALS BATCH | Processing {len(signals_data)} symbols")
+            self.influx_logger.info("-" * 80)
+            
+            points = []
+            
+            # Track first signal for detailed logging
+            first_signal_logged = False
+            
+            for signal_result in signals_data:
+                try:
+                    # Parse timestamp from last_updated field
+                    timestamp = datetime.fromisoformat(signal_result['last_updated'])
+                    
+                    # Create InfluxDB point for signals_generated measurement
+                    point = (
+                        Point("signals_generated")
+                        .tag("symbol", signal_result['symbol'])
+                        .tag("regime", signal_result['regime'])
+                        
+                        # OHLCV fields
+                        .field("open", float(signal_result['open']))
+                        .field("high", float(signal_result['high']))
+                        .field("low", float(signal_result['low']))
+                        .field("close", float(signal_result['close']))
+                        .field("volume", float(signal_result['volume']))
+                        
+                        # Indicator fields
+                        .field("sma_10", float(signal_result['sma_10']))
+                        .field("macd_line", float(signal_result['macd_line']))
+                        .field("macd_signal", float(signal_result['macd_signal']))
+                        .field("atr_14", float(signal_result['atr_14']))
+                        .field("momentum", float(signal_result['momentum']))
+                        .field("bb_upper", float(signal_result['bb_upper']))
+                        .field("bb_lower", float(signal_result['bb_lower']))
+                        .field("volume_ratio", float(signal_result['volume_ratio']))
+                        .field("rsi_14", float(signal_result['rsi_14']))
+                        .field("price_change", float(signal_result['price_change']))
+                        .field("price_change_pct", float(signal_result['price_change_pct']))
+                        
+                        # Signal fields
+                        .field("signal_1_momentum", float(signal_result['signal_1_momentum']))
+                        .field("signal_2_macd", float(signal_result['signal_2_macd']))
+                        .field("signal_3_rsi", float(signal_result['signal_3_rsi']))
+                        .field("signal_4_bollinger", float(signal_result['signal_4_bollinger']))
+                        .field("signal_5_volume", float(signal_result['signal_5_volume']))
+                        .field("signal_6_trend_quality", float(signal_result['signal_6_trend_quality']))
+                        
+                        # Regime fields
+                        .field("regime_confidence", float(signal_result['regime_confidence']))
+                        
+                        # Aggregated score fields
+                        .field("marker_raw_score", float(signal_result['marker_raw_score']))
+                        .field("marker_adjusted_score", float(signal_result['marker_adjusted_score']))
+                        .field("marker_final_score", float(signal_result['marker_final_score']))
+                        
+                        # Metadata fields
+                        .field("date", str(signal_result.get('date', '')))
+                        .field("time", str(signal_result.get('time', '')))
+                        
+                        .time(timestamp)
+                    )
+                    
+                    points.append(point)
+                    
+                    # Log first signal details
+                    if not first_signal_logged:
+                        self.influx_logger.info("Sample Signal Point Details:")
+                        self.influx_logger.info(f"  Measurement: signals_generated")
+                        self.influx_logger.info(f"  Symbol (tag): {signal_result['symbol']}")
+                        self.influx_logger.info(f"  Regime (tag): {signal_result['regime']}")
+                        self.influx_logger.info(f"  Timestamp: {timestamp.isoformat()}")
+                        self.influx_logger.info(f"  OHLC: O=${signal_result['open']:.2f} "
+                                            f"H=${signal_result['high']:.2f} "
+                                            f"L=${signal_result['low']:.2f} "
+                                            f"C=${signal_result['close']:.2f}")
+                        self.influx_logger.info(f"  Final Score: {signal_result['marker_final_score']:.4f}")
+                        self.influx_logger.info(f"  Signals: S1={signal_result['signal_1_momentum']:.2f} "
+                                            f"S2={signal_result['signal_2_macd']:.2f} "
+                                            f"S3={signal_result['signal_3_rsi']:.2f}")
+                        self.influx_logger.info("-" * 80)
+                        first_signal_logged = True
+                    
+                except Exception as e:
+                    self.logger.error(f"Error creating point for {signal_result.get('symbol', 'UNKNOWN')}: {e}")
+                    self.influx_logger.info(f"ERROR | Symbol: {signal_result.get('symbol', 'UNKNOWN')} | {str(e)[:50]}")
+                    fail_count += 1
+            
+            # Batch write all points
+            if points:
+                self.influx_logger.info(f"Writing {len(points)} signal points to InfluxDB...")
+                
+                try:
+                    self.write_api.write(
+                        bucket=self.config.INFLUX_BUCKET,
+                        org=self.config.INFLUX_ORG,
+                        record=points
+                    )
+                    
+                    success_count = len(points)
+                    self.write_count += success_count
+                    
+                    self.influx_logger.info(f"SUCCESS ✓ | Written {success_count} signal points")
+                    self.influx_logger.info(f"Total signals written: {self.write_count:,}")
+                    
+                except Exception as write_error:
+                    fail_count = len(points)
+                    self.error_count += fail_count
+                    self.influx_logger.info(f"WRITE FAILED ✗ | Error: {str(write_error)[:100]}")
+                    self.logger.error(f"InfluxDB signals write error: {write_error}", exc_info=True)
+                    raise
+            
+        except Exception as e:
+            self.error_count += len(signals_data)
+            fail_count = len(signals_data)
+            self.logger.error(f"InfluxDB signals batch write failed: {e}")
+            self.influx_logger.info("=" * 80)
+            self.influx_logger.info(f"SIGNALS BATCH WRITE FAILED")
+            self.influx_logger.info(f"Error: {str(e)}")
+            self.influx_logger.info(f"Failed Symbols: {len(signals_data)}")
+            self.influx_logger.info("=" * 80)
+        
+        return {'success': success_count, 'failed': fail_count}
+        
+        
     def _verify_data_written(self, timestamp, batch_id):
         """Verify data was actually written to InfluxDB"""
         try:

@@ -205,6 +205,222 @@ class ClickHouseManager:
         
         return {'success': success_count, 'failed': fail_count}
     
+
+    def _create_signals_table(self):
+        """Create signals table if it doesn't exist"""
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS signals_generated (
+            timestamp DateTime64(3),
+            symbol String,
+            regime String,
+            
+            -- OHLCV data
+            open Float64,
+            high Float64,
+            low Float64,
+            close Float64,
+            volume Float64,
+            
+            -- Indicators
+            sma_10 Float64,
+            macd_line Float64,
+            macd_signal Float64,
+            atr_14 Float64,
+            momentum Float64,
+            bb_upper Float64,
+            bb_lower Float64,
+            volume_ratio Float64,
+            rsi_14 Float64,
+            price_change Float64,
+            price_change_pct Float64,
+            
+            -- Signals
+            signal_1_momentum Float64,
+            signal_2_macd Float64,
+            signal_3_rsi Float64,
+            signal_4_bollinger Float64,
+            signal_5_volume Float64,
+            signal_6_trend_quality Float64,
+            
+            -- Regime data
+            regime_confidence Float64,
+            
+            -- Aggregated scores
+            marker_raw_score Float64,
+            marker_adjusted_score Float64,
+            marker_final_score Float64,
+            
+            -- Metadata
+            date String,
+            time String,
+            last_updated DateTime64(3),
+            inserted_at DateTime DEFAULT now()
+        ) ENGINE = MergeTree()
+        ORDER BY (symbol, timestamp)
+        """
+        
+        try:
+            self.client.command(create_table_query)
+            self.logger.info("ClickHouse table 'signals_generated' verified/created")
+            self.clickhouse_logger.info("Table 'signals_generated': READY ✓")
+            self.clickhouse_logger.info("Engine: MergeTree | Order: (symbol, timestamp)")
+        except Exception as e:
+            self.logger.error(f"Failed to create ClickHouse signals table: {e}")
+            self.clickhouse_logger.info(f"Signals table creation failed: {str(e)}")
+            raise
+
+
+    def write_signals_batch(self, signals_data: List[Dict]) -> Dict[str, int]:
+        """
+        Write batch of signal results to ClickHouse
+        
+        Args:
+            signals_data: List of signal result dictionaries from SignalProcessor
+            
+        Returns:
+            Dict with success and failure counts
+        """
+        success_count = 0
+        fail_count = 0
+        
+        if not signals_data:
+            return {'success': 0, 'failed': 0}
+        
+        try:
+            self.clickhouse_logger.info("-" * 80)
+            self.clickhouse_logger.info(f"SIGNALS BATCH | Processing {len(signals_data)} symbols")
+            self.clickhouse_logger.info("-" * 80)
+            
+            # Ensure signals table exists (first time only)
+            if not hasattr(self, '_signals_table_created'):
+                self._create_signals_table()
+                self._signals_table_created = True
+            
+            rows = []
+            
+            # Track first signal for detailed logging
+            first_signal_logged = False
+            
+            for signal_result in signals_data:
+                try:
+                    # Parse timestamps
+                    timestamp = datetime.fromisoformat(signal_result.get('timestamp', signal_result['last_updated']))
+                    last_updated = datetime.fromisoformat(signal_result['last_updated'])
+                    
+                    # Prepare row in the same order as table columns
+                    row = [
+                        timestamp,
+                        str(signal_result['symbol']),
+                        str(signal_result['regime']),
+                        
+                        # OHLCV
+                        float(signal_result['open']),
+                        float(signal_result['high']),
+                        float(signal_result['low']),
+                        float(signal_result['close']),
+                        float(signal_result['volume']),
+                        
+                        # Indicators
+                        float(signal_result['sma_10']),
+                        float(signal_result['macd_line']),
+                        float(signal_result['macd_signal']),
+                        float(signal_result['atr_14']),
+                        float(signal_result['momentum']),
+                        float(signal_result['bb_upper']),
+                        float(signal_result['bb_lower']),
+                        float(signal_result['volume_ratio']),
+                        float(signal_result['rsi_14']),
+                        float(signal_result['price_change']),
+                        float(signal_result['price_change_pct']),
+                        
+                        # Signals
+                        float(signal_result['signal_1_momentum']),
+                        float(signal_result['signal_2_macd']),
+                        float(signal_result['signal_3_rsi']),
+                        float(signal_result['signal_4_bollinger']),
+                        float(signal_result['signal_5_volume']),
+                        float(signal_result['signal_6_trend_quality']),
+                        
+                        # Regime
+                        float(signal_result['regime_confidence']),
+                        
+                        # Scores
+                        float(signal_result['marker_raw_score']),
+                        float(signal_result['marker_adjusted_score']),
+                        float(signal_result['marker_final_score']),
+                        
+                        # Metadata
+                        str(signal_result.get('date', '')),
+                        str(signal_result.get('time', '')),
+                        last_updated
+                    ]
+                    
+                    rows.append(row)
+                    
+                    # Log first signal details
+                    if not first_signal_logged:
+                        self.clickhouse_logger.info("Sample Signal Row:")
+                        self.clickhouse_logger.info(f"  Symbol: {signal_result['symbol']}")
+                        self.clickhouse_logger.info(f"  Regime: {signal_result['regime']}")
+                        self.clickhouse_logger.info(f"  Timestamp: {timestamp}")
+                        self.clickhouse_logger.info(f"  OHLC: O=${signal_result['open']:.2f} "
+                                                f"H=${signal_result['high']:.2f} "
+                                                f"L=${signal_result['low']:.2f} "
+                                                f"C=${signal_result['close']:.2f}")
+                        self.clickhouse_logger.info(f"  Final Score: {signal_result['marker_final_score']:.4f}")
+                        self.clickhouse_logger.info(f"  Signals: S1={signal_result['signal_1_momentum']:.2f} "
+                                                f"S2={signal_result['signal_2_macd']:.2f} "
+                                                f"S3={signal_result['signal_3_rsi']:.2f}")
+                        self.clickhouse_logger.info("-" * 80)
+                        first_signal_logged = True
+                    
+                except Exception as e:
+                    self.logger.error(f"Error preparing signal row for {signal_result.get('symbol', 'UNKNOWN')}: {e}")
+                    self.clickhouse_logger.info(f"ERROR | Symbol: {signal_result.get('symbol', 'UNKNOWN')} | {str(e)[:50]}")
+                    fail_count += 1
+            
+            # Batch insert
+            if rows:
+                self.clickhouse_logger.info(f"Inserting {len(rows)} signal rows into ClickHouse...")
+                
+                self.client.insert(
+                    'signals_generated',
+                    rows,
+                    column_names=[
+                        'timestamp', 'symbol', 'regime',
+                        'open', 'high', 'low', 'close', 'volume',
+                        'sma_10', 'macd_line', 'macd_signal', 'atr_14', 'momentum',
+                        'bb_upper', 'bb_lower', 'volume_ratio', 'rsi_14',
+                        'price_change', 'price_change_pct',
+                        'signal_1_momentum', 'signal_2_macd', 'signal_3_rsi',
+                        'signal_4_bollinger', 'signal_5_volume', 'signal_6_trend_quality',
+                        'regime_confidence',
+                        'marker_raw_score', 'marker_adjusted_score', 'marker_final_score',
+                        'date', 'time', 'last_updated'
+                    ]
+                )
+                success_count = len(rows)
+                self.write_count += success_count
+                
+                # Log success with symbols
+                symbols_sample = sorted(set([row[1] for row in rows[:5]]))
+                self.clickhouse_logger.info(f"SUCCESS | Signal Rows Inserted: {success_count}")
+                self.clickhouse_logger.info(f"Symbols: {', '.join(symbols_sample)}"
+                                        f"{' ...' if len(rows) > 5 else ''}")
+                self.clickhouse_logger.info(f"Total Signal Rows So Far: {self.write_count:,}")
+            
+        except Exception as e:
+            self.error_count += len(signals_data)
+            fail_count = len(signals_data)
+            self.logger.error(f"ClickHouse signals batch insert failed: {e}")
+            self.clickhouse_logger.info("=" * 80)
+            self.clickhouse_logger.info(f"SIGNALS BATCH INSERT FAILED")
+            self.clickhouse_logger.info(f"Error: {str(e)}")
+            self.clickhouse_logger.info(f"Failed Rows: {len(signals_data)}")
+            self.clickhouse_logger.info("=" * 80)
+        
+        return {'success': success_count, 'failed': fail_count}
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get ClickHouse operation statistics"""
         return {

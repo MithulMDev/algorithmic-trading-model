@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
+from influx_manager import InfluxManager
+from clickhouse_manager import ClickHouseManager
+import os
+
 
 # ============================================================================
 # Configuration
@@ -664,7 +668,57 @@ class HFTSignalGenerator:
         self.redis_client = None
         self.processor = SignalProcessor(config, logger)
         self.iteration = 0
+
+        # Initialize ClickHouse manager
+        CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
+        CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
+        CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+        CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+        CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "default")
         
+        clickhouse_config = type('ClickHouseConfig', (), {
+            'CLICKHOUSE_HOST': CLICKHOUSE_HOST,
+            'CLICKHOUSE_PORT': CLICKHOUSE_PORT,
+            'CLICKHOUSE_USER': CLICKHOUSE_USER,
+            'CLICKHOUSE_PASSWORD': CLICKHOUSE_PASSWORD,
+            'CLICKHOUSE_DATABASE': CLICKHOUSE_DATABASE
+        })()
+        
+        # Create separate logger for ClickHouse
+        clickhouse_log_file = Path(config.LOG_DIR) / f"clickhouse_signals_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        clickhouse_logger = logging.getLogger("ClickHouseSignals")
+        clickhouse_logger.setLevel(logging.INFO)
+        clickhouse_handler = logging.FileHandler(clickhouse_log_file)
+        clickhouse_handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
+        clickhouse_logger.addHandler(clickhouse_handler)
+        
+        self.clickhouse_manager = ClickHouseManager(clickhouse_config, logger, clickhouse_logger)
+        
+        # Initialize INflux manager
+        INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
+        INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "my-super-secret-auth-token")
+        INFLUX_ORG = os.getenv("INFLUX_ORG", "my-org")
+        INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "ohlcv_data")
+
+        influx_config = type('InfluxConfig', (), {
+            'INFLUX_URL': INFLUX_URL,  
+            'INFLUX_TOKEN': INFLUX_TOKEN,
+            'INFLUX_ORG': INFLUX_ORG,    
+            'INFLUX_BUCKET': INFLUX_BUCKET  # these are all given as the default values as given in the consumer script
+        })()
+
+        
+            
+        # Create separate logger for InfluxDB
+        influx_log_file = Path(config.LOG_DIR) / f"influx_signals_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        influx_logger = logging.getLogger("InfluxSignals")
+        influx_logger.setLevel(logging.INFO)
+        influx_handler = logging.FileHandler(influx_log_file)
+        influx_handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
+        influx_logger.addHandler(influx_handler)
+        
+        self.influx_manager = InfluxManager(influx_config, logger, influx_logger)
+
         self._connect_redis()
     
     def _connect_redis(self):
@@ -836,7 +890,23 @@ class HFTSignalGenerator:
         
         # Print summary
         self.print_summary_table(results)
-        
+
+        # Write signals to InfluxDB
+        if results:
+            try:
+                influx_result = self.influx_manager.write_signals_batch(results)
+                self.logger.info(f"InfluxDB write: {influx_result['success']} succeeded, {influx_result['failed']} failed")
+            except Exception as e:
+                self.logger.error(f"Error writing signals to InfluxDB: {e}")
+            
+        # Write signals to ClickHouse 
+        if results:
+            try:
+                clickhouse_result = self.clickhouse_manager.write_signals_batch(results)
+                self.logger.info(f"ClickHouse write: {clickhouse_result['success']} succeeded, {clickhouse_result['failed']} failed")
+            except Exception as e:
+                self.logger.error(f"Error writing signals to ClickHouse: {e}")
+                
         elapsed = time.time() - start_time
         self.logger.info(f"Iteration {self.iteration} completed in {elapsed:.2f}s")
         self.logger.info("")
@@ -869,6 +939,16 @@ class HFTSignalGenerator:
         self.logger.info("=" * 100)
         self.logger.info(f"Total iterations processed: {self.iteration}")
         
+        # Close InfluxDB connection 
+        if hasattr(self, 'influx_manager') and self.influx_manager:
+            self.influx_manager.close()
+            self.logger.info("InfluxDB connection closed")
+
+        # Close ClickHouse connection
+        if hasattr(self, 'clickhouse_manager') and self.clickhouse_manager:
+            self.clickhouse_manager.close()
+            self.logger.info("ClickHouse connection closed")
+
         if self.redis_client:
             self.redis_client.close()
             self.logger.info("Redis connection closed")
