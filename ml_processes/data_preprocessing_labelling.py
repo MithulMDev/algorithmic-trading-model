@@ -11,8 +11,7 @@ This script handles:
 7. Train/Val/Test split
 8. Saving processed data
 
-Author: Multi-Stock LSTM Project
-Date: 2025
+Updated: Indicators replaced with matching indicators used in the live stream
 """
 
 import pandas as pd
@@ -32,18 +31,12 @@ warnings.filterwarnings('ignore')
 
 CONFIG = {
     # Data paths
-    'data_dir': 'data/raw/',  # Directory containing CSV files
-    'output_dir': 'data/processed/',  # Directory to save processed data
+    'data_dir': 'E:\\trading_algo_model\\file_processors\\trainable_csv_files',  # Directory containing CSV files
+    'output_dir': 'data\\processed\\',  # Directory to save processed data
     
     # Data parameters
     'date_format': '%Y%m%d',  # Format of Date column
     'time_format': '%H:%M',   # Format of Time column
-    
-    # Feature engineering
-    'ma_windows': [5, 10, 20, 50],  # Moving average windows
-    'rsi_window': 14,  # RSI calculation window
-    'bb_window': 20,   # Bollinger Bands window
-    'bb_std': 2,       # Bollinger Bands standard deviations
     
     # Label creation
     'prediction_horizon': 1,  # Minutes ahead to predict (1 or 5)
@@ -168,99 +161,101 @@ def load_all_data():
     return combined_df
 
 # ============================================================================
-# FEATURE ENGINEERING FUNCTIONS
+# FEATURE ENGINEERING FUNCTIONS - USING INDICATOR_ENGINE.PY LOGIC
 # ============================================================================
 
-def calculate_returns(df):
-    """Calculate price returns"""
-    df['returns'] = df['close'].pct_change()
-    return df
-
-def calculate_moving_averages(df):
-    """Calculate simple and exponential moving averages"""
-    for window in CONFIG['ma_windows']:
-        df[f'sma_{window}'] = df['close'].rolling(window=window).mean()
-        df[f'ema_{window}'] = df['close'].ewm(span=window, adjust=False).mean()
-    return df
-
-def calculate_volatility(df):
-    """Calculate rolling volatility"""
-    df['volatility_10'] = df['returns'].rolling(window=10).std()
-    df['volatility_30'] = df['returns'].rolling(window=30).std()
-    return df
-
-def calculate_rsi(df, window=14):
-    """Calculate Relative Strength Index"""
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / (loss + 1e-10)
-    df[f'rsi_{window}'] = 100 - (100 / (1 + rs))
-    return df
-
-def calculate_macd(df):
-    """Calculate MACD indicators"""
-    exp1 = df['close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['close'].ewm(span=26, adjust=False).mean()
-    df['macd'] = exp1 - exp2
-    df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    df['macd_diff'] = df['macd'] - df['macd_signal']
-    return df
-
-def calculate_bollinger_bands(df):
-    """Calculate Bollinger Bands"""
-    window = CONFIG['bb_window']
-    std_multiplier = CONFIG['bb_std']
+def calculate_indicators(df):
+    """
+    Calculate all technical indicators using indicator_engine.py logic
+    This function replaces all the separate indicator calculation functions
     
-    df['bb_middle'] = df['close'].rolling(window=window).mean()
-    bb_std = df['close'].rolling(window=window).std()
-    df['bb_upper'] = df['bb_middle'] + (bb_std * std_multiplier)
-    df['bb_lower'] = df['bb_middle'] - (bb_std * std_multiplier)
-    df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
-    df['bb_position'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'] + 1e-10)
-    return df
-
-def calculate_volume_features(df):
-    """Calculate volume-based features"""
-    df['volume_sma_20'] = df['volume'].rolling(window=20).mean()
-    df['volume_ratio'] = df['volume'] / (df['volume_sma_20'] + 1e-10)
-    df['volume_change'] = df['volume'].pct_change()
-    return df
-
-def calculate_price_features(df):
-    """Calculate price-based features"""
-    # High-Low ratio
-    df['hl_ratio'] = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-10)
+    Parameters:
+        df: DataFrame with columns: open, high, low, close, volume
+        
+    Returns:
+        DataFrame with added indicator columns
+    """
+    # Make a copy to avoid modifying original
+    df = df.copy()
     
-    # Daily range
-    df['daily_range'] = (df['high'] - df['low']) / df['close']
+    # Extract price and volume series
+    close = df['close']
+    high = df['high']
+    low = df['low']
+    volume = df['volume']
     
-    # Open-Close relationship
-    df['oc_ratio'] = (df['close'] - df['open']) / (df['open'] + 1e-10)
+    # ============================================================
+    # Simple Moving Averages
+    # ============================================================
+    df['sma_5'] = close.rolling(window=5, min_periods=5).mean()
+    df['sma_10'] = close.rolling(window=10, min_periods=10).mean()
     
-    return df
-
-def add_lagged_features(df):
-    """Add lagged features"""
-    for lag in [1, 5, 10]:
-        df[f'close_lag_{lag}'] = df['close'].shift(lag)
-        df[f'volume_lag_{lag}'] = df['volume'].shift(lag)
-        df[f'returns_lag_{lag}'] = df['returns'].shift(lag)
-    return df
-
-def add_time_features(df):
-    """Add time-based features"""
-    df['hour'] = df['datetime'].dt.hour
-    df['minute'] = df['datetime'].dt.minute
-    df['day_of_week'] = df['datetime'].dt.dayofweek
-    df['day_of_month'] = df['datetime'].dt.day
-    df['month'] = df['datetime'].dt.month
+    # ============================================================
+    # Exponential Moving Averages
+    # ============================================================
+    df['ema_7'] = close.ewm(span=7, adjust=False, min_periods=7).mean()
+    df['ema_11'] = close.ewm(span=11, adjust=False, min_periods=11).mean()
     
-    # Cyclical encoding for time features
-    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
-    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-    df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
-    df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
+    # ============================================================
+    # MACD (Moving Average Convergence Divergence)
+    # Fast: 12, Slow: 26, Signal: 9
+    # ============================================================
+    ema_12 = close.ewm(span=12, adjust=False, min_periods=12).mean()
+    ema_26 = close.ewm(span=26, adjust=False, min_periods=26).mean()
+    df['macd_line'] = ema_12 - ema_26
+    df['macd_signal'] = df['macd_line'].ewm(span=9, adjust=False, min_periods=9).mean()
+    
+    # ============================================================
+    # ATR (Average True Range) - 14 period
+    # ============================================================
+    high_low = high - low
+    high_close = np.abs(high - close.shift(1))
+    low_close = np.abs(low - close.shift(1))
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df['atr_14'] = true_range.rolling(window=14, min_periods=14).mean()
+    
+    # ============================================================
+    # Momentum: (current - sma_10) / sma_10
+    # ============================================================
+    df['momentum'] = (close - df['sma_10']) / df['sma_10']
+    
+    # ============================================================
+    # Bollinger Bands - 20 period, 2 std dev
+    # ============================================================
+    sma_20 = close.rolling(window=20, min_periods=20).mean()
+    std_20 = close.rolling(window=20, min_periods=20).std()
+    df['bb_upper'] = sma_20 + (2 * std_20)
+    df['bb_lower'] = sma_20 - (2 * std_20)
+    
+    # ============================================================
+    # Volume Moving Average - 10 period
+    # ============================================================
+    df['vma_10'] = volume.rolling(window=10, min_periods=10).mean()
+    
+    # ============================================================
+    # Volume Ratio: current_volume / vma_10
+    # ============================================================
+    df['volume_ratio'] = volume / df['vma_10']
+    
+    # ============================================================
+    # RSI (Relative Strength Index) - 14 period
+    # ============================================================
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    
+    avg_gain = gain.rolling(window=14, min_periods=14).mean()
+    avg_loss = loss.rolling(window=14, min_periods=14).mean()
+    
+    # Avoid division by zero
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df['rsi_14'] = 100 - (100 / (1 + rs))
+    
+    # ============================================================
+    # Price Change (from previous close)
+    # ============================================================
+    df['price_change'] = close.diff()
+    df['price_change_pct'] = close.pct_change() * 100
     
     return df
 
@@ -274,26 +269,19 @@ def engineer_features(df):
     Returns:
         DataFrame with all features
     """
-    log_progress("ENGINEERING FEATURES")
+    log_progress("ENGINEERING FEATURES (using indicator_engine.py logic)")
     
     # Process each ticker separately
     processed_dfs = []
     tickers = df['ticker'].unique()
     
+    print(f"Processing {len(tickers)} tickers...")
+    
     for i, ticker in enumerate(tickers, 1):
         ticker_df = df[df['ticker'] == ticker].copy()
         
-        # Apply all feature calculations
-        ticker_df = calculate_returns(ticker_df)
-        ticker_df = calculate_moving_averages(ticker_df)
-        ticker_df = calculate_volatility(ticker_df)
-        ticker_df = calculate_rsi(ticker_df, CONFIG['rsi_window'])
-        ticker_df = calculate_macd(ticker_df)
-        ticker_df = calculate_bollinger_bands(ticker_df)
-        ticker_df = calculate_volume_features(ticker_df)
-        ticker_df = calculate_price_features(ticker_df)
-        ticker_df = add_lagged_features(ticker_df)
-        ticker_df = add_time_features(ticker_df)
+        # Calculate all indicators using indicator_engine.py logic
+        ticker_df = calculate_indicators(ticker_df)
         
         processed_dfs.append(ticker_df)
         
@@ -308,9 +296,21 @@ def engineer_features(df):
     result_df = result_df.dropna()
     removed_rows = initial_rows - len(result_df)
     
+    # List of indicator features
+    indicator_features = [
+        'sma_5', 'sma_10', 'ema_7', 'ema_11',
+        'macd_line', 'macd_signal', 'atr_14', 'momentum',
+        'bb_upper', 'bb_lower', 'vma_10', 'volume_ratio',
+        'rsi_14', 'price_change', 'price_change_pct'
+    ]
+    
     print(f"\n✓ Feature engineering complete")
-    print(f"  Total features: {len(result_df.columns)}")
+    print(f"  Indicator features: {len(indicator_features)}")
+    print(f"  Total columns: {len(result_df.columns)}")
     print(f"  Rows after removing NaN: {len(result_df):,} (removed {removed_rows:,})")
+    print(f"\nIndicators calculated:")
+    for feature in indicator_features:
+        print(f"  - {feature}")
     
     return result_df
 
@@ -432,15 +432,28 @@ def normalize_data(df):
         df: DataFrame with features and labels
         
     Returns:
-        Normalized DataFrame and scalers
+        Normalized DataFrame and list of feature columns
     """
     log_progress("NORMALIZING DATA")
     
-    # Identify feature columns (exclude metadata and target)
-    exclude_cols = ['ticker', 'datetime', 'target', 'Type', 'Date', 'Time']
-    feature_cols = [col for col in df.columns if col not in exclude_cols]
+    # Define the exact feature columns from indicator_engine.py
+    feature_cols = [
+        # OHLCV features
+        'open', 'high', 'low', 'close', 'volume',
+        # Technical indicators
+        'sma_5', 'sma_10', 'ema_7', 'ema_11',
+        'macd_line', 'macd_signal', 'atr_14', 'momentum',
+        'bb_upper', 'bb_lower', 'vma_10', 'volume_ratio',
+        'rsi_14', 'price_change', 'price_change_pct'
+    ]
+    
+    # Verify all feature columns exist
+    missing_cols = [col for col in feature_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing feature columns: {missing_cols}")
     
     print(f"Features to normalize: {len(feature_cols)}")
+    print(f"Feature list: {feature_cols}")
     
     # Normalize features
     scaler_features = StandardScaler()
@@ -636,6 +649,7 @@ def main():
     
     print("\n" + "="*70)
     print("STOCK MARKET DATA PREPROCESSING PIPELINE")
+    print("Updated with indicator_engine.py indicators")
     print("="*70)
     print(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -648,7 +662,7 @@ def main():
     # Step 2: Remove outliers
     df = remove_outliers(df)
     
-    # Step 3: Engineer features
+    # Step 3: Engineer features (using indicator_engine.py logic)
     df = engineer_features(df)
     
     # Step 4: Create labels
@@ -673,6 +687,14 @@ def main():
     log_progress("PIPELINE COMPLETE", symbol="✓")
     print(f"Total time: {duration:.2f} seconds ({duration/60:.2f} minutes)")
     print(f"Output directory: {CONFIG['output_dir']}")
+    print("\nIndicators used from indicator_engine.py:")
+    print("  - sma_5, sma_10, ema_7, ema_11")
+    print("  - macd_line, macd_signal")
+    print("  - atr_14, momentum")
+    print("  - bb_upper, bb_lower")
+    print("  - vma_10, volume_ratio")
+    print("  - rsi_14")
+    print("  - price_change, price_change_pct")
     print("\nNext step: Run the LSTM training script")
     print("="*70)
 
