@@ -1,1 +1,3 @@
-- replace the method of using maps group with state with a indicator engine + redis architecture
+- The Trading system works without live ML inference.
+- The live inference is not feasible to be tested locally due to memeory overload issues.
+- The LSTM model has been tested with inference using dummy data
