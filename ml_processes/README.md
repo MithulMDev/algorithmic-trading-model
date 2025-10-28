@@ -1,0 +1,1 @@
+- Having per marker scaler, since the LSTM, struggles with sudden slips and change of data when marjers are combined.
