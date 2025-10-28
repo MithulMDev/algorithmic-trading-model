@@ -1,1 +1,4 @@
 - Having per marker scaler, since the LSTM, struggles with sudden slips and change of data when marjers are combined.
+- revised the approach with having marker wise scaler - then aggregating the marker's scaled data for training.
+- the split data is sequential without break.
+- while the time of inference, the incoming data should be scaled with its respective marker's scaler, then fed to the lstm for the percentage of price change prediction. 
