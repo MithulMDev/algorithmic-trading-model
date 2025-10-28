@@ -789,10 +789,10 @@ if __name__ == "__main__":
     # ========== CONFIGURATION ==========
     DATA_FOLDER = 'E:\\trading_algo_model\\file_processors\\trainable_csv_files'  # ← CHANGE THIS to your folder path
     LOOKBACK = 60                     # 60 minutes lookback
-    OUTPUT_TRAIN = 'train_sequences.npz'
-    OUTPUT_VAL = 'val_sequences.npz'
-    OUTPUT_TEST = 'test_sequences.npz'
-    OUTPUT_SCALERS = 'scalers.pkl'
+    OUTPUT_TRAIN = r'E:\trading_algo_model\ml_processes\data\train_sequences.npz'
+    OUTPUT_VAL = r'E:\trading_algo_model\ml_processes\data\val_sequences.npz'
+    OUTPUT_TEST = r'E:\trading_algo_model\ml_processes\data\test_sequences.npz'
+    OUTPUT_SCALERS = r'E:\trading_algo_model\ml_processes\data\scalers.pkl'
     
     # ========== RUN PREPROCESSING PIPELINE ==========
     try:
