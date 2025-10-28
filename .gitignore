@@ -6,4 +6,5 @@ helper_docs/**
 logs/**
 ml_processes/data/processed/*
 ml_processes/logs/*
+ml_processes/data/**
 .env
